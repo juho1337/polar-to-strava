@@ -134,6 +134,31 @@ class Device(DomainModel):
     software_version: str | None = Field(default=None, min_length=1, max_length=100)
 
 
+class Zone(DomainModel):
+    """A sensor intensity zone and, when supplied, time spent in it."""
+
+    lower_bound: float | None = Field(default=None, ge=0)
+    upper_bound: float | None = Field(default=None, ge=0)
+    duration_s: float | None = Field(default=None, ge=0)
+
+    @field_validator("lower_bound", "upper_bound", "duration_s")
+    @classmethod
+    def finite(cls, value: float | None) -> float | None:
+        if value is not None and not isfinite(value):
+            raise ValueError("zone measurement must be finite")
+        return value
+
+    @model_validator(mode="after")
+    def valid_bounds(self) -> Zone:
+        if (
+            self.lower_bound is not None
+            and self.upper_bound is not None
+            and self.upper_bound < self.lower_bound
+        ):
+            raise ValueError("upper_bound must not be lower than lower_bound")
+        return self
+
+
 class TrackPoint(ExtensibleDomainModel):
     """One timestamped recording, with all optional sensor readings preserved."""
 
@@ -168,6 +193,8 @@ class Lap(ExtensibleDomainModel):
     started_at: datetime
     ended_at: datetime
     distance_m: float | None = Field(default=None, ge=0)
+    ascent_m: float | None = Field(default=None, ge=0)
+    descent_m: float | None = Field(default=None, ge=0)
     trackpoints: tuple[TrackPoint, ...] = ()
 
     @field_validator("started_at", "ended_at")
@@ -177,7 +204,7 @@ class Lap(ExtensibleDomainModel):
             raise ValueError("timestamps must include a timezone")
         return value
 
-    @field_validator("distance_m")
+    @field_validator("distance_m", "ascent_m", "descent_m")
     @classmethod
     def finite_distance(cls, value: float | None) -> float | None:
         if value is not None and not isfinite(value):
@@ -188,7 +215,10 @@ class Lap(ExtensibleDomainModel):
     def valid_time_range_and_points(self) -> Lap:
         if self.ended_at < self.started_at:
             raise ValueError("ended_at must not precede started_at")
-        if any(point.timestamp < self.started_at or point.timestamp > self.ended_at for point in self.trackpoints):
+        if any(
+            point.timestamp < self.started_at or point.timestamp > self.ended_at
+            for point in self.trackpoints
+        ):
             raise ValueError("trackpoint timestamps must be within the lap time range")
         if any(
             later.timestamp < earlier.timestamp
@@ -215,6 +245,9 @@ class Activity(ExtensibleDomainModel):
     description: str | None = None
     distance_m: float | None = Field(default=None, ge=0)
     calories: int | None = Field(default=None, ge=0)
+    ascent_m: float | None = Field(default=None, ge=0)
+    descent_m: float | None = Field(default=None, ge=0)
+    zones: Mapping[str, tuple[Zone, ...]] = Field(default_factory=dict, validate_default=True)
     device: Device | None = None
     laps: tuple[Lap, ...] = ()
 
@@ -225,12 +258,17 @@ class Activity(ExtensibleDomainModel):
             raise ValueError("timestamps must include a timezone")
         return value
 
-    @field_validator("distance_m")
+    @field_validator("distance_m", "ascent_m", "descent_m")
     @classmethod
     def finite_distance(cls, value: float | None) -> float | None:
         if value is not None and not isfinite(value):
             raise ValueError("distance must be finite")
         return value
+
+    @field_validator("zones")
+    @classmethod
+    def freeze_zones(cls, value: Mapping[str, tuple[Zone, ...]]) -> Mapping[str, tuple[Zone, ...]]:
+        return cast(Mapping[str, tuple[Zone, ...]], _freeze_extension(dict(value)))
 
     @model_validator(mode="after")
     def valid_time_range_and_laps(self) -> Activity:
@@ -239,7 +277,9 @@ class Activity(ExtensibleDomainModel):
         expected_indexes = tuple(range(1, len(self.laps) + 1))
         if tuple(lap.index for lap in self.laps) != expected_indexes:
             raise ValueError("laps must use consecutive indexes starting at one")
-        if any(lap.started_at < self.started_at or lap.ended_at > self.ended_at for lap in self.laps):
+        if any(
+            lap.started_at < self.started_at or lap.ended_at > self.ended_at for lap in self.laps
+        ):
             raise ValueError("laps must be within the activity time range")
         return self
 

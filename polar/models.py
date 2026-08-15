@@ -10,9 +10,13 @@ class TrackPoint(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
     timestamp: datetime = Field(validation_alias=AliasChoices("timestamp", "time"))
     latitude: float | None = Field(default=None, validation_alias=AliasChoices("latitude", "lat"))
-    longitude: float | None = Field(default=None, validation_alias=AliasChoices("longitude", "lon", "lng"))
+    longitude: float | None = Field(
+        default=None, validation_alias=AliasChoices("longitude", "lon", "lng")
+    )
     altitude: float | None = None
-    heart_rate: int | None = Field(default=None, validation_alias=AliasChoices("heart-rate", "heart_rate", "hr"))
+    heart_rate: int | None = Field(
+        default=None, validation_alias=AliasChoices("heart-rate", "heart_rate", "hr")
+    )
     cadence: int | None = None
     power: int | None = None
     distance: float | None = None
@@ -28,14 +32,18 @@ class TrackPoint(BaseModel):
 
 class Lap(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
-    start_time: datetime | None = Field(default=None, validation_alias=AliasChoices("start-time", "start_time"))
+    start_time: datetime | None = Field(
+        default=None, validation_alias=AliasChoices("start-time", "start_time")
+    )
     duration: str | float | int | None = None
     distance: float | None = None
 
 
 class SampleGroup(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
-    recording_rate: int | None = Field(default=None, validation_alias=AliasChoices("recording-rate", "recording_rate"))
+    recording_rate: int | None = Field(
+        default=None, validation_alias=AliasChoices("recording-rate", "recording_rate")
+    )
     data: list[TrackPoint] = Field(default_factory=list)
 
 
@@ -43,7 +51,10 @@ class PolarActivity(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
     id: str | int | None = None
     title: str | None = None
-    sport: str | None = Field(default=None, validation_alias=AliasChoices("sport", "detailed-sport-info", "detailed_sport_info"))
+    sport: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("sport", "detailed-sport-info", "detailed_sport_info"),
+    )
     start_time: datetime = Field(validation_alias=AliasChoices("start-time", "start_time"))
     duration: str | float | int | None = None
     distance: float | None = None

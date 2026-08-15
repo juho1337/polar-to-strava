@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class Settings(BaseModel):
     """Validated application configuration."""
+
     model_config = ConfigDict(extra="forbid")
     polar_export: Path
     output_folder: Path = Path("output")

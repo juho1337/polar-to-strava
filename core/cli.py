@@ -15,7 +15,10 @@ console = Console()
 
 
 @app.command()
-def scan(config: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path("config.yaml"), verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False) -> None:
+def scan(
+    config: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path("config.yaml"),
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
     """List every Polar activity JSON file in the configured export."""
     configure_logging(verbose)
     activities = scan_activities(load_config(config).polar_export)

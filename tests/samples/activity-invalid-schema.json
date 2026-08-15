@@ -1,0 +1,5 @@
+{
+  "id": "broken",
+  "start-time": "not-a-time",
+  "samples": [{"data": [{"timestamp": "also-not-a-time"}]}]
+}

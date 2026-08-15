@@ -1,0 +1,18 @@
+{
+  "activity-id": "polar-123",
+  "title": "Morning Run",
+  "start-time": "2025-01-02T10:30:00+02:00",
+  "duration": "PT10M",
+  "distance": 1234.5,
+  "calories": 321,
+  "ascent": 43,
+  "descent": 41,
+  "detailed-sport-info": "RUNNING",
+  "device": {"manufacturer": "Polar", "model": "Vantage V3", "serial-number": "abc", "software-version": "2.0"},
+  "heart-rate-zones": [{"lower-bound": 100, "upper-bound": 120, "duration": "PT2M"}],
+  "running-index": 55,
+  "samples": [{"recording-rate": 1, "data": [
+    {"timestamp": "2025-01-02T10:30:01+02:00", "latitude": 60.1699, "longitude": 24.9384, "altitude": 18.5, "heart-rate": 145, "cadence": 82, "power": 250, "temperature": 12.5, "distance": 3.2, "speed": 3.1}
+  ]}],
+  "laps": [{"start-time": "2025-01-02T10:30:00+02:00", "duration": "PT5M", "distance": 1000, "ascent": 20, "descent": 18}]
+}

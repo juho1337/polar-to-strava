@@ -12,6 +12,7 @@ from domain.models import (
     Sport,
     Temperature,
     TrackPoint,
+    Zone,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "Sport",
     "Temperature",
     "TrackPoint",
+    "Zone",
 ]

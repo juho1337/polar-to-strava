@@ -34,11 +34,27 @@ def point(at: datetime = NOW) -> TrackPoint:
 
 
 def lap() -> Lap:
-    return Lap(index=1, started_at=NOW, ended_at=NOW + timedelta(minutes=1), distance_m=200.0, trackpoints=(point(), point(NOW + timedelta(seconds=30))))
+    return Lap(
+        index=1,
+        started_at=NOW,
+        ended_at=NOW + timedelta(minutes=1),
+        distance_m=200.0,
+        trackpoints=(point(), point(NOW + timedelta(seconds=30))),
+    )
 
 
 def test_activity_preserves_exporter_data() -> None:
-    activity = Activity(id="polar-123", source=ActivitySource.POLAR_FLOW, sport=Sport.RUNNING, started_at=NOW, ended_at=NOW + timedelta(minutes=1), distance_m=200.0, device=Device(manufacturer="Polar", model="Vantage V3"), laps=(lap(),), extensions={"running_index": 55})
+    activity = Activity(
+        id="polar-123",
+        source=ActivitySource.POLAR_FLOW,
+        sport=Sport.RUNNING,
+        started_at=NOW,
+        ended_at=NOW + timedelta(minutes=1),
+        distance_m=200.0,
+        device=Device(manufacturer="Polar", model="Vantage V3"),
+        laps=(lap(),),
+        extensions={"running_index": 55},
+    )
     assert activity.trackpoints[0].location is not None
     assert activity.trackpoints[0].location.latitude == 60.1699
     assert activity.trackpoints[0].heart_rate.bpm == 145
@@ -62,7 +78,16 @@ def test_extensions_are_recursively_immutable() -> None:
         frozen.extensions["nested"].append("another")  # type: ignore[union-attr]
 
 
-@pytest.mark.parametrize(("model", "value"), [(Location, {"latitude": 91, "longitude": 0}), (HeartRate, {"bpm": 301}), (Cadence, {"rpm": -1}), (Power, {"watts": -1}), (Temperature, {"celsius": 101})])
+@pytest.mark.parametrize(
+    ("model", "value"),
+    [
+        (Location, {"latitude": 91, "longitude": 0}),
+        (HeartRate, {"bpm": 301}),
+        (Cadence, {"rpm": -1}),
+        (Power, {"watts": -1}),
+        (Temperature, {"celsius": 101}),
+    ],
+)
 def test_measurement_validation(model: type[object], value: dict[str, int]) -> None:
     with pytest.raises(ValidationError):
         model(**value)  # type: ignore[operator]
@@ -75,13 +100,25 @@ def test_timestamp_must_include_timezone() -> None:
 
 def test_lap_requires_ordered_points_in_range() -> None:
     with pytest.raises(ValidationError, match="ordered"):
-        Lap(index=1, started_at=NOW, ended_at=NOW + timedelta(minutes=1), trackpoints=(point(NOW + timedelta(seconds=30)), point()))
+        Lap(
+            index=1,
+            started_at=NOW,
+            ended_at=NOW + timedelta(minutes=1),
+            trackpoints=(point(NOW + timedelta(seconds=30)), point()),
+        )
 
 
 def test_activity_requires_consecutive_lap_indexes() -> None:
     invalid_lap = lap().model_copy(update={"index": 2})
     with pytest.raises(ValidationError, match="consecutive"):
-        Activity(id="1", source=ActivitySource.MANUAL, sport=Sport.WALKING, started_at=NOW, ended_at=NOW + timedelta(minutes=1), laps=(invalid_lap,))
+        Activity(
+            id="1",
+            source=ActivitySource.MANUAL,
+            sport=Sport.WALKING,
+            started_at=NOW,
+            ended_at=NOW + timedelta(minutes=1),
+            laps=(invalid_lap,),
+        )
 
 
 def test_extra_fields_are_rejected() -> None:
