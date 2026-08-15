@@ -1,6 +1,7 @@
 """Logging configuration for command line use."""
 
 import logging
+
 from rich.logging import RichHandler
 
 

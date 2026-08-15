@@ -1,6 +1,8 @@
 from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
+
 from config.loader import load_config
 
 

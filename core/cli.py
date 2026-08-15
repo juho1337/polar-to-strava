@@ -5,6 +5,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+
 from config.loader import load_config
 from core.logging import configure_logging
 from polar.scanner import scan_activities

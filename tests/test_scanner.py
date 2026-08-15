@@ -1,5 +1,7 @@
 from pathlib import Path
+
 import pytest
+
 from polar.scanner import scan_activities
 
 

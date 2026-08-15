@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
+
 import pytest
+
 from polar.parser import PolarParseError, parse_activity
 
 

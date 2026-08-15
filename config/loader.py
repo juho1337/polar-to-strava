@@ -1,6 +1,7 @@
 """YAML configuration loading and validation."""
 
 from pathlib import Path
+
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
