@@ -1,4 +1,4 @@
-"""TCX export architecture; concrete export is planned for Sprint 6."""
+"""In-memory TCX serialization and its independent filesystem writer."""
 
 from tcx.architecture import TCXBuilder, TCXWriter
 

@@ -38,4 +38,4 @@ strict = true
 packages = ["config", "core", "db", "domain", "polar", "services", "strava", "tcx"]
 
 [tool.setuptools]
-packages = ["config", "core", "db", "domain", "polar", "strava", "tcx"]
+packages = ["config", "core", "db", "domain", "polar", "serialization", "services", "strava", "tcx", "tcx.serializers"]
