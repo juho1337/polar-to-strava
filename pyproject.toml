@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polar-to-strava"
+version = "0.1.0"
+description = "Convert Polar Flow JSON exports to Garmin TCX."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.27,<1", "lxml>=5.2,<7", "pydantic>=2.7,<3", "PyYAML>=6.0,<7", "rich>=13.7,<14", "typer>=0.12,<1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0,<9"]
+
+[project.scripts]
+polar-to-strava = "core.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.setuptools]
+packages = ["config", "core", "db", "polar", "strava", "tcx"]

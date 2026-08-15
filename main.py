@@ -1,21 +1,6 @@
-import typer
+"""Compatibility entry point for the PolarToStrava command line interface."""
 
-app = typer.Typer()
-
-
-@app.command()
-def convert():
-    print("Convert JSON → TCX")
-
-
-@app.command()
-def upload():
-    print("Upload TCX → Strava")
-
-
-@app.command()
-def migrate():
-    print("Convert + Upload")
+from core.cli import app
 
 
 if __name__ == "__main__":
