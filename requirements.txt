@@ -1,0 +1,11 @@
+rich
+lxml
+httpx
+pydantic
+pyyaml
+python-dateutil
+sqlalchemy
+typer
+requests
+tqdm
+pytest

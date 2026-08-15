@@ -1,0 +1,11 @@
+polar_export: "C:\\PolarExport"
+
+output_folder: "output"
+
+database: "migration.db"
+
+workers: 8
+
+upload: false
+
+overwrite: false
