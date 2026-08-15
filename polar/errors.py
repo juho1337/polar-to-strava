@@ -2,8 +2,10 @@
 
 from pathlib import Path
 
+from core.errors import ImportError, ValidationError
 
-class PolarImportError(ValueError):
+
+class PolarImportError(ImportError):
     """Base error for an activity that cannot be imported."""
 
     def __init__(self, path: Path, message: str) -> None:
@@ -15,5 +17,5 @@ class PolarLoadError(PolarImportError):
     """The source file cannot be opened or decoded as a JSON object."""
 
 
-class PolarValidationError(PolarImportError):
+class PolarValidationError(PolarImportError, ValidationError):
     """The source file is JSON but cannot form a valid domain activity."""

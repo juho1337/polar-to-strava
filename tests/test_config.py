@@ -1,9 +1,9 @@
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from config.loader import load_config
+from core.errors import ConfigurationError
 
 
 def test_load_config_resolves_relative_paths(tmp_path: Path) -> None:
@@ -22,5 +22,5 @@ def test_load_config_rejects_unknown_keys(tmp_path: Path) -> None:
     export.mkdir()
     config = tmp_path / "config.yaml"
     config.write_text("polar_export: export\nunknown: value\n", encoding="utf-8")
-    with pytest.raises(ValidationError):
+    with pytest.raises(ConfigurationError):
         load_config(config)

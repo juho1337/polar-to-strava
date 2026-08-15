@@ -7,8 +7,10 @@ import typer
 from rich.console import Console
 
 from config.loader import load_config
+from core.errors import PolarToStravaError
 from core.logging import configure_logging
-from polar.scanner import scan_activities
+from polar import PolarImporter
+from services import ActivityValidator, ConversionService
 
 app = typer.Typer(help="Convert Polar Flow exports to Strava-ready activities.")
 console = Console()
@@ -21,7 +23,13 @@ def scan(
 ) -> None:
     """List every Polar activity JSON file in the configured export."""
     configure_logging(verbose)
-    activities = scan_activities(load_config(config).polar_export)
-    for activity in activities:
-        console.print(activity)
-    console.print(f"Found {len(activities)} activity file(s).")
+    try:
+        settings = load_config(config)
+        service = ConversionService(PolarImporter(), ActivityValidator())
+        paths = service.scan_folder(settings.polar_export)
+    except PolarToStravaError as error:
+        console.print(f"[red]Error:[/red] {error}")
+        raise typer.Exit(code=1) from error
+    for path in paths:
+        console.print(path)
+    console.print(f"Found {len(paths)} activity file(s).")

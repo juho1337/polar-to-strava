@@ -5,6 +5,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from core.errors import ConfigurationError
+
 
 class Settings(BaseModel):
     """Validated application configuration."""
@@ -28,12 +30,15 @@ class Settings(BaseModel):
 def load_config(path: Path | str) -> Settings:
     """Load YAML configuration and resolve relative paths against its directory."""
     config_path = Path(path).resolve()
-    with config_path.open(encoding="utf-8") as stream:
-        data = yaml.safe_load(stream) or {}
-    if not isinstance(data, dict):
-        raise ValueError("Configuration root must be a mapping.")
-    for key in ("polar_export", "output_folder", "database"):
-        if key in data:
-            candidate = Path(data[key])
-            data[key] = candidate if candidate.is_absolute() else config_path.parent / candidate
-    return Settings.model_validate(data)
+    try:
+        with config_path.open(encoding="utf-8") as stream:
+            data = yaml.safe_load(stream) or {}
+        if not isinstance(data, dict):
+            raise ValueError("Configuration root must be a mapping.")
+        for key in ("polar_export", "output_folder", "database"):
+            if key in data:
+                candidate = Path(data[key])
+                data[key] = candidate if candidate.is_absolute() else config_path.parent / candidate
+        return Settings.model_validate(data)
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        raise ConfigurationError(f"Could not load {config_path}: {error}") from error
