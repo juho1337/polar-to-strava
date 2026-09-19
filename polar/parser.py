@@ -26,6 +26,7 @@ from domain import (
     Zone,
 )
 from polar.errors import PolarImportError, PolarLoadError, PolarValidationError
+from polar.training_session import parse_training_session
 
 # Backward-compatible name retained for callers of the Sprint 1 parser API.
 PolarParseError = PolarImportError
@@ -103,7 +104,12 @@ def parse_activity(path: Path | str) -> Activity:
     """Load and validate one Polar export as an immutable domain activity."""
     activity_path = Path(path)
     try:
-        return _parse_payload(load_activity_json(activity_path))
+        payload = load_activity_json(activity_path)
+        if "exercises" in payload or "startTime" in payload:
+            return parse_training_session(payload, activity_path)
+        if "summary" in payload and "date" in payload:
+            raise ValueError("daily activity tracking JSON is not a training session")
+        return _parse_payload(payload)
     except PolarLoadError:
         raise
     except (ValidationError, TypeError, ValueError, KeyError, OverflowError) as error:

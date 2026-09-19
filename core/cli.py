@@ -91,7 +91,9 @@ def inspect(input: Annotated[Path, typer.Argument(exists=True, dir_okay=False)])
     }
     console.print(f"Date/time: {activity.started_at.isoformat()}")
     console.print(
-        f"Sport: {activity.sport.value}; duration: {activity.duration}; distance: {activity.distance_m}"
+        f"Sport: {activity.sport.value}; recorded duration: "
+        f"{activity.recorded_duration_s if activity.recorded_duration_s is not None else activity.duration.total_seconds()} s; "
+        f"elapsed duration: {activity.duration}; distance: {activity.distance_m}"
     )
     console.print(f"Laps: {len(activity.laps)}; trackpoints: {len(points)}")
     for name, count in counts.items():

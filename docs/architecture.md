@@ -17,7 +17,8 @@ flowchart TD
 - **`domain/`** contains immutable `Activity` values and has no knowledge of Polar,
   TCX, Strava, filesystems, or HTTP.
 - **Importers** translate a provider format into the domain. `PolarImporter` is the
-  current adapter and returns `Activity` values only.
+  current adapter and returns `Activity` values only. Its scanner selects recorded
+  `training-session-*.json` workouts and excludes daily `activity-*.json` tracking.
 - **`services/`** orchestrates importer ports and validators. `ConversionService`
   scans folders, imports activities, and returns structured results. Its conversion
   methods build validated TCX and write it to disk; they do not upload.

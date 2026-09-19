@@ -1,6 +1,6 @@
 # PolarToStrava
 
-Convert Polar Flow activity JSON exports to Garmin TCX files for manual import to Strava. Python 3.12 or newer is required.
+Convert Polar Flow user-data training-session JSON exports to Garmin TCX files for manual import to Strava. Python 3.12 or newer is required.
 
 ## Install
 
@@ -14,12 +14,14 @@ pip install -e ".[dev]"
 
 ```powershell
 python main.py scan --config config.yaml
-python main.py inspect C:\PolarExport\activity-123.json
-python main.py convert C:\PolarExport\activity-123.json --output C:\Converted\activity-123.tcx
+python main.py inspect C:\PolarExport\training-session-123.json
+python main.py convert C:\PolarExport\training-session-123.json --output C:\Converted\training-session-123.tcx
 python main.py convert C:\PolarExport --output C:\Converted
 ```
 
-`scan` discovers `activity-*.json` recursively from the configured `polar_export` directory. `inspect` reports source counts and measurements for one activity. `convert` accepts one JSON file or a directory. Directory conversion processes each file independently and gives each output a deterministic name based on its relative path, with a short hash to prevent filename collisions. An existing output is preserved unless `--overwrite` is supplied. A directory run reports successes, warnings, failures, and totals; its exit code is 1 if any activity fails.
+`scan` discovers `training-session-*.json` recursively from the configured `polar_export` directory. Polar user-data exports contain several categories: `training-session-*.json` holds recorded workouts, while `activity-*.json` holds daily activity tracking and is excluded from workout conversion. `inspect` reports source counts and measurements for one activity. `convert` accepts one JSON file or a directory. Directory conversion processes each file independently and gives each output a deterministic name based on its relative path, with a short hash to prevent filename collisions. An existing output is preserved unless `--overwrite` is supplied. A directory run reports successes, warnings, failures, and totals; its exit code is 1 if any activity fails.
+
+The importer supports Polar's user-data training-session structure (`startTime`, `stopTime`, `timeZoneOffset`, `exercises[]`, and timestamped sample streams) and retains support for the earlier direct activity JSON fixture format. Naive sample timestamps use the exercise's timezone offset in minutes; streams are joined by timestamp, not array position. For multiple exercises, one session Activity is produced, with a single generated lap when no explicit laps exist. Mixed exercise sports map to domain `other`, with each original sport retained in extensions. Missing sensor values remain absent.
 
 ## TCX behavior and limits
 
@@ -31,7 +33,7 @@ The bundled [TrainingCenterDatabasev2.xsd](tcx/TrainingCenterDatabasev2.xsd) and
 
 ## Manual Strava verification
 
-1. Run `inspect` on a real Polar activity and note its date, sport, duration, distance, and sensor counts.
+1. Run `inspect` on a real Polar training-session file and note its date, sport, recorded and elapsed duration, distance, and sensor counts.
 2. Convert that JSON file to TCX and check the command succeeds.
 3. In Strava, manually upload the TCX as an activity file.
 4. Compare start time, sport, elapsed time, distance, route, altitude, heart rate, cadence, and power against the Polar activity. Record any differences and the Polar JSON structure that produced them.

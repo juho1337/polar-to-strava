@@ -1,0 +1,31 @@
+{
+  "exportVersion": "2.6",
+  "name": "",
+  "deviceId": "SANITIZED",
+  "startTime": "2025-05-05T21:04:22.490",
+  "stopTime": "2025-05-05T21:04:27.755",
+  "timeZoneOffset": 180,
+  "duration": "PT4.224S",
+  "maximumHeartRate": 140,
+  "averageHeartRate": 125,
+  "kiloCalories": 4,
+  "exercises": [{
+    "startTime": "2025-05-05T21:04:22.645",
+    "stopTime": "2025-05-05T21:04:26.869",
+    "timezoneOffset": 180,
+    "duration": "PT4.224S",
+    "sport": "PADEL",
+    "kiloCalories": 4,
+    "heartRate": {"min": 78, "avg": 125, "max": 140},
+    "zones": {"heart_rate": [{"lowerLimit": 95, "higherLimit": 113, "inZone": "PT1S", "zoneIndex": 1}]},
+    "samples": {
+      "heartRate": [
+        {"dateTime": "2025-05-05T21:04:22.645", "value": 79},
+        {"dateTime": "2025-05-05T21:04:23.645", "value": 80}
+      ],
+      "speed": [{"dateTime": "2025-05-05T21:04:22.645"}],
+      "distance": [{"dateTime": "2025-05-05T21:04:22.645"}],
+      "temperature": [{"dateTime": "2025-05-05T21:04:22.645"}]
+    }
+  }]
+}

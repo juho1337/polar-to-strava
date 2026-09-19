@@ -33,6 +33,10 @@ class ActivitySerializer:
         etree.SubElement(tcx_activity, tag("Id")).text = timestamp(activity.started_at)
         for lap in activity.laps:
             element = self._lap_serializer.serialize(lap)
+            if len(activity.laps) == 1 and activity.recorded_duration_s is not None:
+                total_time = element.find(tag("TotalTimeSeconds"))
+                assert total_time is not None
+                total_time.text = str(activity.recorded_duration_s)
             if len(activity.laps) == 1 and activity.calories is not None:
                 calories = element.find(tag("Calories"))
                 assert calories is not None

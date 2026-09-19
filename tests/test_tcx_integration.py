@@ -82,8 +82,8 @@ def test_convert_cli_file_and_no_overwrite(tmp_path: Path) -> None:
 def test_convert_directory_continues_after_failure(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    (source / "activity-good.json").write_bytes(SAMPLE.read_bytes())
-    (source / "activity-bad.json").write_text("{", encoding="utf-8")
+    (source / "training-session-good.json").write_bytes(SAMPLE.read_bytes())
+    (source / "training-session-bad.json").write_text("{", encoding="utf-8")
     destination = tmp_path / "output"
     result = CliRunner().invoke(app, ["convert", str(source), "--output", str(destination)])
     assert result.exit_code == 1
@@ -97,7 +97,7 @@ def test_directory_names_remain_unique_for_duplicate_basenames(tmp_path: Path) -
     (source / "one").mkdir(parents=True)
     (source / "two").mkdir()
     for folder in ("one", "two"):
-        (source / folder / "activity-same.json").write_bytes(SAMPLE.read_bytes())
+        (source / folder / "training-session-same.json").write_bytes(SAMPLE.read_bytes())
     destination = tmp_path / "output"
     result = CliRunner().invoke(app, ["convert", str(source), "--output", str(destination)])
     assert result.exit_code == 0

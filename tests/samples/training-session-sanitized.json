@@ -1,0 +1,38 @@
+{
+  "exportVersion": "2.6",
+  "name": "Sample workout",
+  "deviceId": "TEST-DEVICE",
+  "startTime": "2025-01-01T10:00:00.000",
+  "stopTime": "2025-01-01T10:00:03.000",
+  "timeZoneOffset": 180,
+  "duration": "PT3S",
+  "maximumHeartRate": 150,
+  "averageHeartRate": 140,
+  "kiloCalories": 42,
+  "exercises": [{
+    "startTime": "2025-01-01T10:00:00.000",
+    "stopTime": "2025-01-01T10:00:03.000",
+    "timezoneOffset": 180,
+    "duration": "PT3S",
+    "sport": "RUNNING",
+    "kiloCalories": 42,
+    "heartRate": {"min": 130, "avg": 140, "max": 150},
+    "zones": {"heart_rate": [{"lowerLimit": 130, "higherLimit": 160, "inZone": "PT3S", "zoneIndex": 1}]},
+    "samples": {
+      "heartRate": [
+        {"dateTime": "2025-01-01T10:00:00.000", "value": 130},
+        {"dateTime": "2025-01-01T10:00:02.000", "value": 150}
+      ],
+      "speed": [{"dateTime": "2025-01-01T10:00:01.000", "value": 10.8}],
+      "distance": [{"dateTime": "2025-01-01T10:00:02.000", "value": 8.5}],
+      "temperature": [{"dateTime": "2025-01-01T10:00:01.000", "value": 12.5}],
+      "cadence": [{"dateTime": "2025-01-01T10:00:01.000", "value": 82}],
+      "power": [{"dateTime": "2025-01-01T10:00:01.000", "value": 250}],
+      "altitude": [{"dateTime": "2025-01-01T10:00:01.000", "value": 20}]
+    },
+    "recordedRoute": [
+      {"dateTime": "2025-01-01T10:00:00.000", "latitude": 60.17, "longitude": 24.94, "altitude": 19},
+      {"dateTime": "2025-01-01T10:00:01.000", "latitude": 60.18, "longitude": 24.95}
+    ]
+  }]
+}

@@ -40,6 +40,7 @@ class Sport(StrEnum):
     SKIING = "skiing"
     CROSS_COUNTRY_SKIING = "cross_country_skiing"
     ROWING = "rowing"
+    PADEL = "padel"
     OTHER = "other"
 
 
@@ -245,6 +246,9 @@ class Activity(ExtensibleDomainModel):
     description: str | None = None
     distance_m: float | None = Field(default=None, ge=0)
     calories: int | None = Field(default=None, ge=0)
+    recorded_duration_s: float | None = Field(default=None, ge=0)
+    average_heart_rate_bpm: int | None = Field(default=None, ge=0, le=300)
+    maximum_heart_rate_bpm: int | None = Field(default=None, ge=0, le=300)
     ascent_m: float | None = Field(default=None, ge=0)
     descent_m: float | None = Field(default=None, ge=0)
     zones: Mapping[str, tuple[Zone, ...]] = Field(default_factory=dict, validate_default=True)
@@ -258,7 +262,7 @@ class Activity(ExtensibleDomainModel):
             raise ValueError("timestamps must include a timezone")
         return value
 
-    @field_validator("distance_m", "ascent_m", "descent_m")
+    @field_validator("distance_m", "ascent_m", "descent_m", "recorded_duration_s")
     @classmethod
     def finite_distance(cls, value: float | None) -> float | None:
         if value is not None and not isfinite(value):

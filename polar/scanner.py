@@ -13,12 +13,12 @@ def iter_activity_files(export_directory: Path | str) -> Iterator[Path]:
         path
         for path in root.rglob("*")
         if path.is_file()
-        and path.name.lower().startswith("activity-")
+        and path.name.lower().startswith("training-session-")
         and path.suffix.lower() == ".json"
     )
     yield from sorted(paths, key=lambda path: (path.name.lower(), str(path).lower()))
 
 
 def scan_activities(export_directory: Path | str) -> list[Path]:
-    """Recursively return deterministic paths matching ``activity-*.json``."""
+    """Recursively return deterministic workout paths matching training-session JSON."""
     return list(iter_activity_files(export_directory))
