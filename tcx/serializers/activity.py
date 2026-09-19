@@ -10,9 +10,9 @@ from tcx.serializers.trackpoint import EXT_NAMESPACE, TCX_NAMESPACE, tag, timest
 
 
 def tcx_sport(sport: Sport) -> str:
-    if sport in (Sport.RUNNING, Sport.TRAIL_RUNNING):
+    if sport in (Sport.RUNNING, Sport.TRAIL_RUNNING, Sport.TREADMILL_RUNNING):
         return "Running"
-    if sport in (Sport.CYCLING, Sport.MOUNTAIN_BIKING):
+    if sport in (Sport.CYCLING, Sport.MOUNTAIN_BIKING, Sport.INDOOR_CYCLING):
         return "Biking"
     return "Other"
 

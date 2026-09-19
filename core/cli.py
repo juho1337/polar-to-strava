@@ -40,14 +40,17 @@ def convert(
     input: Annotated[Path, typer.Argument(exists=True)],
     output: Annotated[Path, typer.Option("--output", "-o")],
     overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
+    format: Annotated[str, typer.Option("--format", help="tcx (default) or fit")] = "tcx",
 ) -> None:
-    """Convert a Polar activity file or export directory to TCX."""
+    """Convert a Polar activity file or export directory to TCX or FIT."""
+    if format not in ("tcx", "fit"):
+        raise typer.BadParameter("Format must be tcx or fit.")
     service = ConversionService(PolarImporter(), ActivityValidator())
     try:
         if input.is_dir():
             if output.exists() and not output.is_dir():
                 raise typer.BadParameter("Directory input requires an output directory.")
-            paths, issues = service.convert_folder(input, output, overwrite)
+            paths, issues = service.convert_folder(input, output, overwrite, format)
             for path in paths:
                 console.print(f"Converted: {path}")
             for issue in issues:
@@ -60,8 +63,10 @@ def convert(
                 raise typer.Exit(code=1)
         else:
             if output.exists() and output.is_dir():
-                raise typer.BadParameter("File input requires a .tcx output file.")
-            issues = service.convert_file(input, output, overwrite)
+                raise typer.BadParameter(f"File input requires a .{format} output file.")
+            if output.suffix.lower() != f".{format}":
+                raise typer.BadParameter(f"Output must have a .{format} extension.")
+            issues = service.convert_file(input, output, overwrite, format)
             console.print(f"Converted: {output}")
             for issue in issues:
                 console.print(f"{issue.severity.value}: {issue.message}")

@@ -1,6 +1,6 @@
 # PolarToStrava
 
-Convert Polar Flow user-data training-session JSON exports to Garmin TCX files for manual import to Strava. Python 3.12 or newer is required.
+Convert Polar Flow user-data training-session JSON exports to TCX or experimental FIT files for manual import to Strava. Python 3.12 or newer is required.
 
 ## Install
 
@@ -39,3 +39,11 @@ The bundled [TrainingCenterDatabasev2.xsd](tcx/TrainingCenterDatabasev2.xsd) and
 4. Compare start time, sport, elapsed time, distance, route, altitude, heart rate, cadence, and power against the Polar activity. Record any differences and the Polar JSON structure that produced them.
 
 Strava API uploading, OAuth, migration state, and duplicate detection are not implemented.
+
+# Experimental FIT export
+
+TCX remains the default. For a manual Strava FIT pilot, run
+`python main.py convert <Polar JSON> --output <activity.fit> --format fit`.
+FIT export uses `fit-tool` and validates the decoded file before writing it.
+The FIT upload has not yet been confirmed to restore Strava's heart-rate graph.
+See [FIT export details](docs/fit-export.md).

@@ -282,7 +282,6 @@ def _sport(value: Any) -> Sport:
     normalized = value.lower().replace(" ", "_").replace("-", "_")
     aliases = {
         "road_cycling": Sport.CYCLING,
-        "treadmill_running": Sport.RUNNING,
         "xc_skiing": Sport.CROSS_COUNTRY_SKIING,
     }
     try:

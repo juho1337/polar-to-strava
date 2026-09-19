@@ -6,6 +6,7 @@ from pathlib import Path
 from core.contracts import ActivityImporter
 from core.errors import ExportError, ImportError
 from domain import Activity
+from fit import FITBuilder, FITWriter
 from services.service_models import ConversionResult
 from services.validation import ValidationIssue, ValidationSeverity, Validator
 from tcx import TCXBuilder, TCXWriter
@@ -58,27 +59,33 @@ class ConversionService:
         return activity, result.issues
 
     def convert_file(
-        self, source: Path, destination: Path, overwrite: bool = False
+        self, source: Path, destination: Path, overwrite: bool = False, format: str = "tcx"
     ) -> tuple[ValidationIssue, ...]:
         """Convert one Polar JSON file to a validated TCX document."""
         if destination.exists() and not overwrite:
             raise ExportError(f"Output already exists: {destination}")
         activity, issues = self.import_one(source)
-        content = TCXBuilder().build(activity)
-        TCXWriter().write(content, destination)
+        if format not in ("tcx", "fit"):
+            raise ExportError(f"Unsupported export format: {format}")
+        if format == "tcx":
+            TCXWriter().write(TCXBuilder().build(activity), destination)
+        else:
+            FITWriter().write(FITBuilder().build(activity), destination)
         return issues
 
     def convert_folder(
-        self, source: Path, destination: Path, overwrite: bool = False
+        self, source: Path, destination: Path, overwrite: bool = False, format: str = "tcx"
     ) -> tuple[tuple[Path, ...], tuple[ValidationIssue, ...]]:
         """Convert discovered activities independently, retaining failures."""
         outputs: list[Path] = []
         issues: list[ValidationIssue] = []
         for path in self.scan_folder(source):
             suffix = sha256(str(path.relative_to(source)).lower().encode()).hexdigest()[:10]
-            target = destination / f"{path.stem}-{suffix}.tcx"
+            if format not in ("tcx", "fit"):
+                raise ExportError(f"Unsupported export format: {format}")
+            target = destination / f"{path.stem}-{suffix}.{format}"
             try:
-                issues.extend(self.convert_file(path, target, overwrite))
+                issues.extend(self.convert_file(path, target, overwrite, format))
                 outputs.append(target)
             except (ImportError, ExportError, OSError) as error:
                 issues.append(
