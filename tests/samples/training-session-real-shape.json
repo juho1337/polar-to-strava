@@ -21,7 +21,7 @@
     "samples": {
       "heartRate": [
         {"dateTime": "2025-05-05T21:04:22.645", "value": 79},
-        {"dateTime": "2025-05-05T21:04:23.645", "value": 80}
+        {"dateTime": "2025-05-05T21:04:26.645", "value": 80}
       ],
       "speed": [{"dateTime": "2025-05-05T21:04:22.645"}],
       "distance": [{"dateTime": "2025-05-05T21:04:22.645"}],

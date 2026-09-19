@@ -12,7 +12,7 @@ from polar.parser import parse_activity
 from services import ActivityValidator
 from tcx import TCXBuilder
 from tcx.serializers.trackpoint import TCX_NAMESPACE
-from tcx.validator import TCXValidator
+from tcx.validator import TCXValidationError, TCXValidator
 
 SAMPLES = Path(__file__).parent / "samples"
 
@@ -41,6 +41,35 @@ def test_real_shape_preserves_time_and_missing_measurements() -> None:
     )
     assert len(root.findall(f".//{{{TCX_NAMESPACE}}}Trackpoint")) == 2
     assert root.findtext(f".//{{{TCX_NAMESPACE}}}TotalTimeSeconds") == "4.224"
+    tcx_points = root.findall(f".//{{{TCX_NAMESPACE}}}Trackpoint")
+    times = [point.findtext(f"{{{TCX_NAMESPACE}}}Time") for point in tcx_points]
+    values = [
+        point.findtext(f"{{{TCX_NAMESPACE}}}HeartRateBpm/{{{TCX_NAMESPACE}}}Value")
+        for point in tcx_points
+    ]
+    assert times == [
+        "2025-05-05T18:04:22.645000Z",
+        "2025-05-05T18:04:26.645000Z",
+    ]
+    assert len(set(times)) == len(times)
+    assert values == ["79", "80"]
+    assert all(
+        point.find(f"{{{TCX_NAMESPACE}}}HeartRateBpm/{{{TCX_NAMESPACE}}}Value") is not None
+        for point in tcx_points
+    )
+
+
+def test_semantic_validator_rejects_lost_trackpoint_hr() -> None:
+    activity = PolarImporter().import_activity(SAMPLES / "training-session-real-shape.json")
+    root = etree.fromstring(TCXBuilder().build(activity))
+    for point in root.findall(f".//{{{TCX_NAMESPACE}}}Trackpoint"):
+        heart_rate = point.find(f"{{{TCX_NAMESPACE}}}HeartRateBpm")
+        assert heart_rate is not None
+        point.remove(heart_rate)
+    content = etree.tostring(root)
+    TCXValidator().validate_xml(content)
+    with pytest.raises(TCXValidationError, match="heart-rate stream differs"):
+        TCXValidator().validate_streams(activity, content)
 
 
 def test_separate_streams_merge_by_timestamp_and_route() -> None:

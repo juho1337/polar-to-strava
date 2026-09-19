@@ -25,4 +25,5 @@ class TCXBuilder:
             self._activity_serializer.serialize(activity), encoding="utf-8", xml_declaration=True
         )
         self._validator.validate_xml(content)
+        self._validator.validate_streams(activity, content)
         return content
