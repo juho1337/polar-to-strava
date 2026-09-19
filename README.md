@@ -1,43 +1,39 @@
 # PolarToStrava
 
-PolarToStrava converts Polar Flow JSON exports into Garmin TCX files, with planned support for the official Strava Upload API.
+Convert Polar Flow activity JSON exports to Garmin TCX files for manual import to Strava. Python 3.12 or newer is required.
 
-## Milestone 1
+## Install
 
-This foundation release loads configuration, recursively discovers `activity-*.json` files, and parses Polar activities into strongly typed Pydantic models. TCX generation and Strava uploading are planned for later milestones.
-
-## Requirements and installation
-
-Python 3.12 or newer is required.
-
-```bash
+```powershell
 python -m venv .venv
-.venv\\Scripts\\activate
+.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 ```
 
-## Configure and scan
+## Commands
 
-Edit `config.yaml`, then run:
-
-```bash
+```powershell
 python main.py scan --config config.yaml
+python main.py inspect C:\PolarExport\activity-123.json
+python main.py convert C:\PolarExport\activity-123.json --output C:\Converted\activity-123.tcx
+python main.py convert C:\PolarExport --output C:\Converted
 ```
 
-Relative paths in configuration resolve relative to the configuration file. Add `--verbose` for debug logging.
+`scan` discovers `activity-*.json` recursively from the configured `polar_export` directory. `inspect` reports source counts and measurements for one activity. `convert` accepts one JSON file or a directory. Directory conversion processes each file independently and gives each output a deterministic name based on its relative path, with a short hash to prevent filename collisions. An existing output is preserved unless `--overwrite` is supplied. A directory run reports successes, warnings, failures, and totals; its exit code is 1 if any activity fails.
 
-## Test
+## TCX behavior and limits
 
-```bash
-pytest
-```
+The importer creates one lap covering the activity when Polar samples exist but explicit Polar laps do not. Activities with no usable trackpoints are rejected. The exporter maps running and trail running to TCX `Running`, cycling and mountain biking to `Biking`, and all other sports to `Other`; for `Other`, the domain sport is retained in TCX Notes.
 
-## Layout
+TCX requires lap Calories, Intensity, and TriggerMethod even when Polar provides no per-lap values. The exporter writes `0`, `Active`, and `Manual` respectively as schema-required defaults. Missing lap distance is derived from recorded point distances when possible, otherwise written as `0`. Maximum speed and heart-rate/cadence summaries are derived from points when present. Trackpoint speed and watts use Garmin ActivityExtension v2. Temperature has no field in the chosen base TCX and ActivityExtension v2 schemas and is retained in the domain only. Other Polar fields can also remain in domain extensions without a TCX equivalent.
 
-- `polar/` — Polar Flow discovery and parsing
-- `tcx/` — future TCX generation
-- `strava/` — future Strava Upload API client
-- `db/` — future SQLite persistence
-- `core/` — CLI and logging
-- `config/` — configuration loading
-- `tests/` — automated tests
+The bundled [TrainingCenterDatabasev2.xsd](tcx/TrainingCenterDatabasev2.xsd) and [ActivityExtensionv2.xsd](tcx/ActivityExtensionv2.xsd) were retrieved from Garmin's published schemas at `https://www8.garmin.com/xmlschemas/`. Generated XML is checked against both schemas locally; export has no runtime network dependency.
+
+## Manual Strava verification
+
+1. Run `inspect` on a real Polar activity and note its date, sport, duration, distance, and sensor counts.
+2. Convert that JSON file to TCX and check the command succeeds.
+3. In Strava, manually upload the TCX as an activity file.
+4. Compare start time, sport, elapsed time, distance, route, altitude, heart rate, cadence, and power against the Polar activity. Record any differences and the Polar JSON structure that produced them.
+
+Strava API uploading, OAuth, migration state, and duplicate detection are not implemented.

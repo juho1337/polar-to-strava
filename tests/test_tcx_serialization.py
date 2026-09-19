@@ -53,5 +53,5 @@ def test_builder_rejects_activities_without_laps() -> None:
         started_at=started_at,
         ended_at=started_at,
     )
-    with pytest.raises(TCXValidationError, match="at least one lap"):
+    with pytest.raises(TCXValidationError, match="at least one usable trackpoint"):
         TCXBuilder().build(empty)

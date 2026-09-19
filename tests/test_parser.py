@@ -19,6 +19,11 @@ def test_parse_polar_sample_preserves_supported_measurements() -> None:
     assert activity.calories == 321
     assert (activity.ascent_m, activity.descent_m) == (43.0, 41.0)
     assert point.location is not None
+    assert point.heart_rate is not None
+    assert point.cadence is not None
+    assert point.power is not None
+    assert point.temperature is not None
+    assert activity.device is not None
     assert (point.location.latitude, point.location.altitude_m) == (60.1699, 18.5)
     assert (point.heart_rate.bpm, point.cadence.rpm, point.power.watts) == (145, 82.0, 250)
     assert point.temperature.celsius == 12.5

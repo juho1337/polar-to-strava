@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 dependencies = ["httpx>=0.27,<1", "lxml>=5.2,<7", "pydantic>=2.7,<3", "PyYAML>=6.0,<7", "rich>=13.7,<14", "typer>=0.12,<1"]
 
 [project.optional-dependencies]
-dev = ["black>=24.0,<26", "mypy>=1.10,<2", "pytest>=8.0,<9", "ruff>=0.5,<1", "types-PyYAML>=6.0"]
+dev = ["black>=24.0,<26", "lxml-stubs>=0.5,<1", "mypy>=1.10,<2", "pytest>=8.0,<9", "ruff>=0.5,<1", "types-PyYAML>=6.0"]
 
 [project.scripts]
 polar-to-strava = "core.cli:app"
@@ -39,3 +39,6 @@ packages = ["config", "core", "db", "domain", "polar", "services", "strava", "tc
 
 [tool.setuptools]
 packages = ["config", "core", "db", "domain", "polar", "serialization", "services", "strava", "tcx", "tcx.serializers"]
+
+[tool.setuptools.package-data]
+tcx = ["*.xsd"]

@@ -124,6 +124,11 @@ def _parse_payload(payload: Mapping[str, Any]) -> Activity:
     laps = _laps(payload.get("laps"), started_at, ended_at, trackpoints)
     if not laps and trackpoints:
         laps = (Lap(index=1, started_at=started_at, ended_at=ended_at, trackpoints=trackpoints),)
+    if laps and any(
+        not any(lap.started_at <= point.timestamp <= lap.ended_at for lap in laps)
+        for point in trackpoints
+    ):
+        raise ValueError("sample timestamp falls outside all Polar lap time ranges")
     return Activity(
         id=str(_first(payload, "id", "activity-id") or f"polar-{started_at.isoformat()}"),
         source=ActivitySource.POLAR_FLOW,
@@ -144,18 +149,21 @@ def _parse_payload(payload: Mapping[str, Any]) -> Activity:
 
 
 def _trackpoints(samples: Any) -> tuple[TrackPoint, ...]:
-    if not isinstance(samples, Sequence) or isinstance(samples, (str, bytes)):
+    if samples is None:
         return ()
+    if not isinstance(samples, Sequence) or isinstance(samples, (str, bytes)):
+        raise ValueError("samples must be an array")
     points: list[TrackPoint] = []
     for group in samples:
         if not isinstance(group, Mapping):
-            continue
+            raise ValueError("each sample group must be an object")
         data = group.get("data")
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            continue
+            raise ValueError("sample group data must be an array")
         for raw_point in data:
-            if isinstance(raw_point, Mapping):
-                points.append(_trackpoint(raw_point))
+            if not isinstance(raw_point, Mapping):
+                raise ValueError("each sample trackpoint must be an object")
+            points.append(_trackpoint(raw_point))
     return tuple(sorted(points, key=lambda point: point.timestamp))
 
 

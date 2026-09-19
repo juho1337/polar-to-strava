@@ -19,12 +19,12 @@ flowchart TD
 - **Importers** translate a provider format into the domain. `PolarImporter` is the
   current adapter and returns `Activity` values only.
 - **`services/`** orchestrates importer ports and validators. `ConversionService`
-  scans folders, imports activities, and returns structured results; it never exports,
-  writes files, or uploads.
-- **Exporters** will build bytes in memory through `ActivityExporter`. TCX is split
+  scans folders, imports activities, and returns structured results. Its conversion
+  methods build validated TCX and write it to disk; they do not upload.
+- **Exporters** build bytes in memory through `ActivityExporter`. TCX is split
   into a `TCXBuilder` and `TCXWriter`, so building is independently testable and a
   future writer can target a filesystem, stream, zip archive, or cloud store.
-- **Uploaders** implement `ActivityUploader` for remote destinations such as Strava.
+- **Uploaders** can implement `ActivityUploader` for future remote destinations.
 
 ```mermaid
 sequenceDiagram
@@ -50,6 +50,4 @@ which lets the CLI present a single user-friendly error boundary.
 ## Extension points
 
 New sources implement `ActivityImporter`; new in-memory formats implement
-`ActivityExporter`; and destinations implement `ActivityUploader`. This makes planned
-`TCXExporter`, `FitExporter`, `GpxExporter`, and `StravaUploader` additions independent
-of the CLI and domain packages.
+`ActivityExporter`; and future remote destinations can implement `ActivityUploader`.

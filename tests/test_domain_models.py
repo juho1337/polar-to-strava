@@ -56,6 +56,8 @@ def test_activity_preserves_exporter_data() -> None:
         extensions={"running_index": 55},
     )
     assert activity.trackpoints[0].location is not None
+    assert activity.trackpoints[0].heart_rate is not None
+    assert activity.trackpoints[0].power is not None
     assert activity.trackpoints[0].location.latitude == 60.1699
     assert activity.trackpoints[0].heart_rate.bpm == 145
     assert activity.trackpoints[0].power.watts == 250
@@ -66,7 +68,7 @@ def test_activity_preserves_exporter_data() -> None:
 def test_models_are_frozen() -> None:
     model = point()
     with pytest.raises(ValidationError):
-        model.distance_m = 50.0  # type: ignore[misc]
+        model.distance_m = 50.0
 
 
 def test_extensions_are_recursively_immutable() -> None:
@@ -75,7 +77,7 @@ def test_extensions_are_recursively_immutable() -> None:
     with pytest.raises(TypeError):
         frozen.extensions["new"] = "value"  # type: ignore[index]
     with pytest.raises(AttributeError):
-        frozen.extensions["nested"].append("another")  # type: ignore[union-attr]
+        frozen.extensions["nested"].append("another")
 
 
 @pytest.mark.parametrize(
@@ -90,7 +92,7 @@ def test_extensions_are_recursively_immutable() -> None:
 )
 def test_measurement_validation(model: type[object], value: dict[str, int]) -> None:
     with pytest.raises(ValidationError):
-        model(**value)  # type: ignore[operator]
+        model(**value)
 
 
 def test_timestamp_must_include_timezone() -> None:

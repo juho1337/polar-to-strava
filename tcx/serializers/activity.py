@@ -1,25 +1,45 @@
-"""Serialization of one activity and its laps into a TCX XML document tree."""
+"""Serialize an activity and map domain sports to TCX sports."""
 
-from xml.etree.ElementTree import Element, SubElement, register_namespace
+from typing import cast
 
-from domain import Activity, Lap
+from lxml import etree
+
+from domain import Activity, Lap, Sport
 from serialization import Serializer
-from tcx.serializers.trackpoint import TCX_NAMESPACE, tag, timestamp
+from tcx.serializers.trackpoint import EXT_NAMESPACE, TCX_NAMESPACE, tag, timestamp
+
+
+def tcx_sport(sport: Sport) -> str:
+    if sport in (Sport.RUNNING, Sport.TRAIL_RUNNING):
+        return "Running"
+    if sport in (Sport.CYCLING, Sport.MOUNTAIN_BIKING):
+        return "Biking"
+    return "Other"
 
 
 class ActivitySerializer:
-    """Builds the document hierarchy and delegates every lap element."""
-
-    def __init__(self, lap_serializer: Serializer[Lap, Element]) -> None:
+    def __init__(self, lap_serializer: Serializer[Lap, etree._Element]) -> None:
         self._lap_serializer = lap_serializer
 
-    def serialize(self, activity: Activity) -> Element:
-        """Return the root TCX XML element for one activity."""
-        register_namespace("", TCX_NAMESPACE)
-        root = Element(tag("TrainingCenterDatabase"))
-        activities = SubElement(root, tag("Activities"))
-        tcx_activity = SubElement(activities, tag("Activity"), {"Sport": activity.sport.value})
-        SubElement(tcx_activity, tag("Id")).text = timestamp(activity.started_at)
+    def serialize(self, activity: Activity) -> etree._Element:
+        root = etree.Element(
+            tag("TrainingCenterDatabase"),
+            nsmap=cast(dict[str, str], {None: TCX_NAMESPACE, "ae": EXT_NAMESPACE}),
+        )
+        activities = etree.SubElement(root, tag("Activities"))
+        tcx_activity = etree.SubElement(
+            activities, tag("Activity"), Sport=tcx_sport(activity.sport)
+        )
+        etree.SubElement(tcx_activity, tag("Id")).text = timestamp(activity.started_at)
         for lap in activity.laps:
-            tcx_activity.append(self._lap_serializer.serialize(lap))
+            element = self._lap_serializer.serialize(lap)
+            if len(activity.laps) == 1 and activity.calories is not None:
+                calories = element.find(tag("Calories"))
+                assert calories is not None
+                calories.text = str(activity.calories)
+            tcx_activity.append(element)
+        if tcx_sport(activity.sport) == "Other":
+            etree.SubElement(tcx_activity, tag("Notes")).text = (
+                f"Original sport: {activity.sport.value}"
+            )
         return root

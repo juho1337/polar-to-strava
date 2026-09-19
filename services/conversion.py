@@ -1,11 +1,14 @@
 """Application orchestration for importing and validating activities."""
 
+from hashlib import sha256
 from pathlib import Path
 
 from core.contracts import ActivityImporter
-from core.errors import ImportError
+from core.errors import ExportError, ImportError
+from domain import Activity
 from services.service_models import ConversionResult
 from services.validation import ValidationIssue, ValidationSeverity, Validator
+from tcx import TCXBuilder, TCXWriter
 
 
 class ConversionService:
@@ -45,3 +48,45 @@ class ConversionService:
             if validation.is_valid:
                 activities.append(activity)
         return ConversionResult(tuple(activities), tuple(issues), paths)
+
+    def import_one(self, path: Path) -> tuple[Activity, tuple[ValidationIssue, ...]]:
+        """Import and validate one file, retaining warnings."""
+        activity = self._importer.import_activity(path)
+        result = self._validator.validate(activity)
+        if not result.is_valid:
+            raise ImportError("; ".join(issue.message for issue in result.issues))
+        return activity, result.issues
+
+    def convert_file(
+        self, source: Path, destination: Path, overwrite: bool = False
+    ) -> tuple[ValidationIssue, ...]:
+        """Convert one Polar JSON file to a validated TCX document."""
+        if destination.exists() and not overwrite:
+            raise ExportError(f"Output already exists: {destination}")
+        activity, issues = self.import_one(source)
+        content = TCXBuilder().build(activity)
+        TCXWriter().write(content, destination)
+        return issues
+
+    def convert_folder(
+        self, source: Path, destination: Path, overwrite: bool = False
+    ) -> tuple[tuple[Path, ...], tuple[ValidationIssue, ...]]:
+        """Convert discovered activities independently, retaining failures."""
+        outputs: list[Path] = []
+        issues: list[ValidationIssue] = []
+        for path in self.scan_folder(source):
+            suffix = sha256(str(path.relative_to(source)).lower().encode()).hexdigest()[:10]
+            target = destination / f"{path.stem}-{suffix}.tcx"
+            try:
+                issues.extend(self.convert_file(path, target, overwrite))
+                outputs.append(target)
+            except (ImportError, ExportError, OSError) as error:
+                issues.append(
+                    ValidationIssue(
+                        code="conversion.failed",
+                        message=f"{path}: {error}",
+                        severity=ValidationSeverity.ERROR,
+                        field=str(path),
+                    )
+                )
+        return tuple(outputs), tuple(issues)
