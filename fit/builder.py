@@ -131,7 +131,9 @@ class FITBuilder:
                     if activity.recorded_duration_s is not None
                     else source_lap.duration.total_seconds()
                 )
-            elif activity.recorded_duration_s is None:
+            else:
+                # FIT requires a timer value for every lap. Polar's split
+                # duration is the only explicit per-lap timing in this model.
                 lap.total_timer_time = source_lap.duration.total_seconds()
             if source_lap.distance_m is not None:
                 lap.total_distance = source_lap.distance_m

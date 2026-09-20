@@ -64,3 +64,6 @@ are conservative source comparisons, never automatic deletions.
 
 The export and audit contain personal workout information. Keep their directories private and
 outside the repository. No Strava upload or API call occurs during bulk conversion or audit.
+
+See [Sprint 8.1 compatibility evidence](docs/sprint-8-1-compatibility.md) for
+the verified route-bound, lap-timing, timezone, and duplicate-timestamp rules.

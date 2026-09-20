@@ -74,7 +74,10 @@ def _source_info(path: Path) -> tuple[str | None, dict[str, int]]:
                 and item.get("longitude", item.get("lon")) is not None
                 for item in route
             )
-            if not isinstance(samples.get("altitude"), list):
+            altitude_stream = samples.get("altitude")
+            if not isinstance(altitude_stream, list) or not any(
+                isinstance(item, dict) and item.get("value") is not None for item in altitude_stream
+            ):
                 result["altitude"] += sum(
                     isinstance(item, dict) and item.get("altitude") is not None for item in route
                 )
@@ -177,6 +180,10 @@ def _warnings(activity: Activity, source: dict[str, int], counts: dict[str, int]
         warnings.append("missing_recorded_duration")
     if not activity.trackpoints:
         warnings.append("no_trackpoints")
+    if activity.extensions.get("route_points_outside_exercise"):
+        warnings.append("route_outside_exercise_inside_session")
+    if activity.extensions.get("source_laps_unapplied"):
+        warnings.append("source_laps_unapplied")
     if activity.duration.total_seconds() <= 0 or activity.duration.total_seconds() > 86400:
         warnings.append("suspicious_duration")
     if activity.distance_m == 0 and counts["gps"] > 0:

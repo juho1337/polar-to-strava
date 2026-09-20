@@ -2,14 +2,33 @@
 
 import json
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
 
+from domain import Activity
 from polar import PolarImporter
 from services.audit import MigrationAudit
 from services.conversion import output_name
 from services.validation import ActivityValidator
 
 SAMPLE = Path(__file__).parent / "samples" / "training-session-sanitized.json"
+
+
+class LossyImporter:
+    """A controlled importer defect used to check audit loss detection."""
+
+    def scan(self, directory: Path) -> Iterable[Path]:
+        return PolarImporter().scan(directory)
+
+    def import_activity(self, path: Path) -> Activity:
+        activity = PolarImporter().import_activity(path)
+        lap = activity.laps[0]
+        first = lap.trackpoints[0].model_copy(update={"heart_rate": None})
+        return activity.model_copy(
+            update={
+                "laps": (lap.model_copy(update={"trackpoints": (first, *lap.trackpoints[1:])}),)
+            }
+        )
 
 
 def test_audit_accounts_for_every_source_and_reruns(tmp_path: Path) -> None:
@@ -53,13 +72,10 @@ def test_audit_reports_source_to_domain_loss_as_warning(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     payload = json.loads(SAMPLE.read_text(encoding="utf-8"))
-    payload["exercises"][0]["samples"]["heartRate"].append(
-        {"dateTime": "2025-01-01T10:00:00.000", "value": 123}
-    )
     path = source / "training-session-loss.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
 
-    report = MigrationAudit(PolarImporter(), ActivityValidator()).run(source, tmp_path / "audit")
+    report = MigrationAudit(LossyImporter(), ActivityValidator()).run(source, tmp_path / "audit")
     row = report["activities"][0]
     assert row["status"] == "converted"
     assert row["source_counts"]["hr"] > row["domain_counts"]["hr"]

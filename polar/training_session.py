@@ -94,13 +94,21 @@ def _sport(value: Any) -> Sport:
 
 
 def _stream_points(
-    exercise: Mapping[str, Any], offset: timezone, start: datetime
-) -> tuple[TrackPoint, ...]:
+    exercise: Mapping[str, Any],
+    offset: timezone,
+    start: datetime,
+    end: datetime,
+    session_start: datetime,
+    session_end: datetime,
+) -> tuple[tuple[TrackPoint, ...], int, frozenset[datetime]]:
     samples = exercise.get("samples") or {}
     if not isinstance(samples, Mapping):
         raise ValueError("exercise samples must be an object of named streams")
-    by_time: dict[datetime, dict[str, Any]] = {}
+    # One slot per observation ordinal at a timestamp. Parallel streams join by
+    # ordinal, never by Cartesian product; repeated route points retain order.
+    by_time: dict[datetime, list[dict[str, Any]]] = {}
     for source_name, field in _STREAMS.items():
+        stream_ordinals: dict[datetime, int] = {}
         stream = samples.get(source_name) or []
         if not isinstance(stream, Sequence) or isinstance(stream, (str, bytes)):
             raise ValueError(f"{source_name} samples must be an array")
@@ -112,59 +120,84 @@ def _stream_points(
                 continue
             time_value = item.get("dateTime", item.get("time"))
             at = _time(time_value, offset, f"{source_name} sample", start)
+            if at < start or at > end:
+                raise ValueError("sample timestamp falls outside its exercise")
             # Polar's published speed sample unit is km/h; domain speed is m/s.
             if field == "speed_mps":
                 value /= 3.6
-            by_time.setdefault(at, {})[field] = value
+            slots = by_time.setdefault(at, [])
+            ordinal = stream_ordinals.get(at, 0)
+            stream_ordinals[at] = ordinal + 1
+            while len(slots) <= ordinal:
+                slots.append({})
+            slots[ordinal][field] = value
     # Distinct Polar altitude streams have different timestamps and, for real
     # exports, different elevation ranges. Never mix route elevation into a
     # session that has a populated standalone altitude stream.
-    has_sensor_altitude = any("altitude_m" in values for values in by_time.values())
+    has_sensor_altitude = any("altitude_m" in slot for slots in by_time.values() for slot in slots)
     route = exercise.get("recordedRoute", samples.get("recordedRoute", [])) or []
     if isinstance(route, Mapping):
         route = route.get("points", route.get("locations", []))
     if not isinstance(route, Sequence) or isinstance(route, (str, bytes)):
         raise ValueError("recordedRoute must be an array of points")
+    route_ordinals: dict[datetime, int] = {}
+    extended_route_count = 0
+    extended_route_times: set[datetime] = set()
     for item in route:
         if not isinstance(item, Mapping):
             raise ValueError("recordedRoute point must be an object")
         at = _time(item.get("dateTime", item.get("time")), offset, "recordedRoute point", start)
+        if at < session_start or at > session_end:
+            raise ValueError("recordedRoute point falls outside its session")
+        if at < start or at > end:
+            extended_route_count += 1
+            extended_route_times.add(at)
         latitude = _number(item.get("latitude", item.get("lat")), "latitude")
         longitude = _number(item.get("longitude", item.get("lon")), "longitude")
         if latitude is None or longitude is None:
             raise ValueError("recordedRoute point requires latitude and longitude")
-        fields = by_time.setdefault(at, {})
+        ordinal = route_ordinals.get(at, 0)
+        route_ordinals[at] = ordinal + 1
+        slots = by_time.setdefault(at, [])
+        while len(slots) <= ordinal:
+            slots.append({})
+        fields = slots[ordinal]
         fields["latitude"] = latitude
         fields["longitude"] = longitude
         altitude = _number(item.get("altitude"), "altitude")
         if altitude is not None and not has_sensor_altitude:
             fields["altitude_m"] = altitude
     points: list[TrackPoint] = []
-    for at, values in sorted(by_time.items()):
-        location = None
-        if "latitude" in values:
-            location = Location(
-                latitude=values["latitude"],
-                longitude=values["longitude"],
+    for at, slots in sorted(by_time.items()):
+        for values in slots:
+            location = None
+            if "latitude" in values:
+                location = Location(
+                    latitude=values["latitude"],
+                    longitude=values["longitude"],
+                )
+            points.append(
+                TrackPoint(
+                    timestamp=at,
+                    location=location,
+                    altitude_m=values.get("altitude_m"),
+                    distance_m=values.get("distance_m"),
+                    speed_mps=values.get("speed_mps"),
+                    heart_rate=(
+                        HeartRate(bpm=round(values["heart_rate"]))
+                        if "heart_rate" in values
+                        else None
+                    ),
+                    cadence=Cadence(rpm=values["cadence"]) if "cadence" in values else None,
+                    power=Power(watts=round(values["power"])) if "power" in values else None,
+                    temperature=(
+                        Temperature(celsius=values["temperature"])
+                        if "temperature" in values
+                        else None
+                    ),
+                )
             )
-        points.append(
-            TrackPoint(
-                timestamp=at,
-                location=location,
-                altitude_m=values.get("altitude_m"),
-                distance_m=values.get("distance_m"),
-                speed_mps=values.get("speed_mps"),
-                heart_rate=(
-                    HeartRate(bpm=round(values["heart_rate"])) if "heart_rate" in values else None
-                ),
-                cadence=Cadence(rpm=values["cadence"]) if "cadence" in values else None,
-                power=Power(watts=round(values["power"])) if "power" in values else None,
-                temperature=(
-                    Temperature(celsius=values["temperature"]) if "temperature" in values else None
-                ),
-            )
-        )
-    return tuple(points)
+    return tuple(points), extended_route_count, frozenset(extended_route_times)
 
 
 def _zones(exercises: Sequence[Mapping[str, Any]]) -> dict[str, tuple[Zone, ...]]:
@@ -203,13 +236,19 @@ def parse_training_session(payload: Mapping[str, Any], path: Path) -> Activity:
     all_points: list[TrackPoint] = []
     exercise_distances: list[float | None] = []
     lap_ranges: list[tuple[datetime, datetime, Mapping[str, Any]]] = []
+    extended_route_count = 0
+    extended_route_times: set[datetime] = set()
     for exercise in exercises:
         offset = _offset(exercise, payload)
         exercise_start = _time(exercise.get("startTime"), offset, "exercise startTime")
         exercise_end = _time(exercise.get("stopTime"), offset, "exercise stopTime")
         if exercise_start < started_at or exercise_end > stopped_at:
             raise ValueError("exercise times must be within session startTime and stopTime")
-        exercise_points = _stream_points(exercise, offset, exercise_start)
+        exercise_points, extended, extended_times = _stream_points(
+            exercise, offset, exercise_start, exercise_end, started_at, stopped_at
+        )
+        extended_route_count += extended
+        extended_route_times.update(extended_times)
         exercise_distance = _number(exercise.get("distance"), "exercise distance")
         if exercise_distance is None:
             recorded_distances = [
@@ -217,23 +256,48 @@ def parse_training_session(payload: Mapping[str, Any], path: Path) -> Activity:
             ]
             exercise_distance = max(recorded_distances) if recorded_distances else None
         exercise_distances.append(exercise_distance)
-        for point in exercise_points:
-            if point.timestamp < exercise_start or point.timestamp > exercise_end:
-                raise ValueError("sample timestamp falls outside its exercise")
-            all_points.append(point)
+        all_points.extend(exercise_points)
         raw_laps = exercise.get("laps") or []
         if not isinstance(raw_laps, list):
             raise ValueError("exercise laps must be an array")
-        for raw_lap in raw_laps:
+        implicit_laps = bool(raw_laps) and all(
+            isinstance(raw, Mapping) and "startTime" not in raw and "stopTime" not in raw
+            for raw in raw_laps
+        )
+        previous_split = 0.0
+        for index, raw_lap in enumerate(raw_laps):
             if not isinstance(raw_lap, Mapping):
                 raise ValueError("exercise lap must be an object")
-            lap_start = _time(raw_lap.get("startTime"), offset, "lap startTime")
-            lap_end = _time(raw_lap.get("stopTime"), offset, "lap stopTime")
+            if implicit_laps:
+                split = _duration(raw_lap.get("splitTime"))
+                duration = _duration(raw_lap.get("duration"))
+                if (
+                    split is None
+                    or duration is None
+                    or duration <= 0
+                    or split <= previous_split
+                    or abs(split - previous_split - duration) > 0.02
+                    or ("lapNumber" in raw_lap and raw_lap["lapNumber"] != index)
+                ):
+                    raise ValueError("lap splitTime and duration are inconsistent")
+                lap_start = exercise_start + timedelta(seconds=previous_split)
+                lap_end = exercise_start + timedelta(seconds=split)
+                previous_split = split
+            else:
+                lap_start = _time(raw_lap.get("startTime"), offset, "lap startTime")
+                lap_end = _time(raw_lap.get("stopTime"), offset, "lap stopTime")
             lap_ranges.append((lap_start, lap_end, raw_lap))
+        if (
+            implicit_laps
+            and abs(previous_split - (exercise_end - exercise_start).total_seconds()) > 0.02
+        ):
+            raise ValueError("last lap splitTime differs from exercise duration")
     points = tuple(sorted(all_points, key=lambda point: point.timestamp))
+    source_laps_unapplied = False
+    laps: tuple[Lap, ...]
     if lap_ranges:
         lap_ranges.sort(key=lambda item: item[0])
-        laps = tuple(
+        explicit_laps = tuple(
             Lap(
                 index=index,
                 started_at=lap_start,
@@ -246,11 +310,21 @@ def parse_training_session(payload: Mapping[str, Any], path: Path) -> Activity:
             )
             for index, (lap_start, lap_end, raw) in enumerate(lap_ranges, 1)
         )
-        if any(
-            not any(lap.started_at <= point.timestamp <= lap.ended_at for lap in laps)
+        uncovered = tuple(
+            point
             for point in points
-        ):
-            raise ValueError("sample timestamp falls outside all explicit laps")
+            if not any(lap.started_at <= point.timestamp <= lap.ended_at for lap in explicit_laps)
+        )
+        if uncovered:
+            if not all(point.timestamp in extended_route_times for point in uncovered):
+                raise ValueError("sample timestamp falls outside all explicit laps")
+            # The route extends into the session after the final explicit lap.
+            # Keep the points and source lap metadata without extending a lap
+            # beyond the source's stated stop time.
+            source_laps_unapplied = True
+            laps = (Lap(index=1, started_at=started_at, ended_at=stopped_at, trackpoints=points),)
+        else:
+            laps = explicit_laps
     else:
         laps = (
             (Lap(index=1, started_at=started_at, ended_at=stopped_at, trackpoints=points),)
@@ -282,6 +356,13 @@ def parse_training_session(payload: Mapping[str, Any], path: Path) -> Activity:
         extensions={
             "exercise_sports": tuple(exercise.get("sport") for exercise in exercises),
             "session_timezone_offset_minutes": payload.get("timeZoneOffset"),
+            "route_points_outside_exercise": extended_route_count,
+            "source_laps_unapplied": source_laps_unapplied,
+            "source_laps": (
+                tuple(exercise.get("laps") or () for exercise in exercises)
+                if source_laps_unapplied
+                else ()
+            ),
             "exercise_metadata": tuple(
                 {
                     key: value
