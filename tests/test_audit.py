@@ -32,6 +32,7 @@ def test_audit_accounts_for_every_source_and_reruns(tmp_path: Path) -> None:
     assert summary["converted"] == summary["validated"] == 2
     assert summary["failed"] == 1
     assert summary["failure_stages"] == {"import": 1}
+    assert sum(group["count"] for group in summary["failure_categories"].values()) == 1
     assert len(report["duplicate_candidates"]) == 1
     assert report["sports"]["RUNNING"]["activities"] == 2
     assert report["sensors"]["hr"]["fit"]["samples"] == 4

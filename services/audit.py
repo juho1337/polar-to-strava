@@ -239,6 +239,20 @@ def _duplicates(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
     return pairs
 
 
+def _failure_categories(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    categories: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row["status"] != "failed":
+            continue
+        message = str(row.get("error") or "unknown error").split(": ", 1)[-1]
+        key = f"{row.get('failure_stage')} / {row.get('error_type', 'unknown')} / {message}"
+        group = categories.setdefault(key, {"count": 0, "examples": []})
+        group["count"] += 1
+        if len(group["examples"]) < 3:
+            group["examples"].append({"source": row["source"], "error": row.get("error")})
+    return dict(sorted(categories.items(), key=lambda item: -item[1]["count"]))
+
+
 def _process_one(
     path: Path,
     source: Path,
@@ -425,6 +439,7 @@ class MigrationAudit:
                 "failed": statuses["failed"],
                 "skipped_existing": statuses["skipped_existing"],
                 "failure_stages": dict(failures),
+                "failure_categories": _failure_categories(rows),
                 "warning_counts": dict(warnings),
                 "total_fit_bytes": sum(row.get("fit_bytes", 0) for row in rows),
                 "generated_fit_bytes": sum(
@@ -525,6 +540,10 @@ class MigrationAudit:
                 f"- {stage}: {count}; examples: "
                 + "; ".join(f"`{row['source']}` ({row['error']})" for row in examples)
             )
+        lines += ["", "## Failure categories", ""]
+        for category, group in summary["failure_categories"].items():
+            category_examples = "; ".join(f"`{item['source']}`" for item in group["examples"])
+            lines.append(f"- {category}: {group['count']}; examples: {category_examples}")
         lines += [
             "",
             "## Sports",
