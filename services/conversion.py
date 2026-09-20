@@ -12,6 +12,13 @@ from services.validation import ValidationIssue, ValidationSeverity, Validator
 from tcx import TCXBuilder, TCXWriter
 
 
+def output_name(path: Path, root: Path, format: str) -> str:
+    """Retain the session filename and disambiguate duplicate relative paths."""
+    relative = path.relative_to(root).as_posix().lower()
+    suffix = sha256(relative.encode()).hexdigest()[:10]
+    return f"{path.stem}-{suffix}.{format}"
+
+
 class ConversionService:
     """Scans, imports, and validates activities without exporting or uploading."""
 
@@ -80,14 +87,23 @@ class ConversionService:
         outputs: list[Path] = []
         issues: list[ValidationIssue] = []
         for path in self.scan_folder(source):
-            suffix = sha256(str(path.relative_to(source)).lower().encode()).hexdigest()[:10]
             if format not in ("tcx", "fit"):
                 raise ExportError(f"Unsupported export format: {format}")
-            target = destination / f"{path.stem}-{suffix}.{format}"
+            target = destination / output_name(path, source, format)
+            if target.exists() and not overwrite:
+                issues.append(
+                    ValidationIssue(
+                        code="conversion.skipped_existing",
+                        message=f"Existing output left untouched: {target}",
+                        severity=ValidationSeverity.WARNING,
+                        field=str(path),
+                    )
+                )
+                continue
             try:
                 issues.extend(self.convert_file(path, target, overwrite, format))
                 outputs.append(target)
-            except (ImportError, ExportError, OSError) as error:
+            except Exception as error:
                 issues.append(
                     ValidationIssue(
                         code="conversion.failed",

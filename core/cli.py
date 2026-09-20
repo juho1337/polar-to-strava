@@ -11,9 +11,31 @@ from core.errors import PolarToStravaError
 from core.logging import configure_logging
 from polar import PolarImporter
 from services import ActivityValidator, ConversionService
+from services.audit import MigrationAudit
 
 app = typer.Typer(help="Convert Polar Flow exports to Strava-ready activities.")
 console = Console()
+
+
+@app.command()
+def audit(
+    input: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    output: Annotated[Path, typer.Option("--output", "-o")],
+    overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
+) -> None:
+    """Convert workouts to FIT and write a complete migration audit."""
+    if output.exists() and not output.is_dir():
+        raise typer.BadParameter("Audit output must be a directory.")
+    report = MigrationAudit(PolarImporter(), ActivityValidator()).run(input, output, overwrite)
+    summary = report["summary"]
+    console.print(
+        f"Discovered {summary['discovered']}; parsed {summary['parsed']}; "
+        f"converted {summary['converted']}; validated {summary['validated']}; "
+        f"skipped {summary['skipped_existing']}; failed {summary['failed']}."
+    )
+    console.print(f"Reports: {output / 'migration-audit.json'}, .csv, .md")
+    if summary["failed"]:
+        raise typer.Exit(code=1)
 
 
 @app.command()
