@@ -90,9 +90,7 @@ def inspect(input: Annotated[Path, typer.Argument(exists=True, dir_okay=False)])
         "heart rate": sum(point.heart_rate is not None for point in points),
         "cadence": sum(point.cadence is not None for point in points),
         "power": sum(point.power is not None for point in points),
-        "altitude": sum(
-            point.location is not None and point.location.altitude_m is not None for point in points
-        ),
+        "altitude": sum(point.recorded_altitude_m is not None for point in points),
     }
     console.print(f"Date/time: {activity.started_at.isoformat()}")
     console.print(

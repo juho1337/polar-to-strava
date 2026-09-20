@@ -71,8 +71,8 @@ def _record(point: TrackPoint) -> RecordMessage:
         # fit-tool's public properties take degrees and convert to wire semicircles.
         record.position_lat = point.location.latitude
         record.position_long = point.location.longitude
-        if point.location.altitude_m is not None:
-            record.enhanced_altitude = point.location.altitude_m
+    if point.recorded_altitude_m is not None:
+        record.enhanced_altitude = point.recorded_altitude_m
     if point.distance_m is not None:
         record.distance = point.distance_m
     if point.speed_mps is not None:
@@ -196,7 +196,7 @@ class FITBuilder:
                 expected = {
                     "position_lat": source.location.latitude if source.location else None,
                     "position_long": source.location.longitude if source.location else None,
-                    "enhanced_altitude": source.location.altitude_m if source.location else None,
+                    "enhanced_altitude": source.recorded_altitude_m,
                     "distance": source.distance_m,
                     "enhanced_speed": source.speed_mps,
                     "cadence": round(source.cadence.rpm) if source.cadence else None,
@@ -207,10 +207,11 @@ class FITBuilder:
                 }
                 for field, value in expected.items():
                     actual = getattr(record, field)
+                    tolerance = 0.101 if field == "enhanced_altitude" else 0.02
                     if value is None and actual is not None:
                         raise ExportError(f"FIT fabricated {field}")
                     if value is not None and (
-                        actual is None or not isclose(actual, value, abs_tol=0.02)
+                        actual is None or not isclose(actual, value, abs_tol=tolerance)
                     ):
                         raise ExportError(f"FIT {field} differs from source")
             for kind in (FileIdMessage, LapMessage, SessionMessage, ActivityMessage):

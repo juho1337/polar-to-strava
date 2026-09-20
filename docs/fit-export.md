@@ -25,6 +25,12 @@ samples less than one second apart may share a FIT timestamp; samples are
 retained in source order. Sensor field precision is limited by FIT scaling.
 Cadence and temperature are rounded to integers.
 
+Polar's separate altitude stream is exported at its own timestamps, including
+points without GPS. Route altitude is used only if that exercise has no
+populated separate altitude stream. The `leftPedalCrankBasedPower` stream is
+not mapped to standard power while its total-power meaning remains unresolved.
+See [the source investigation](polar-altitude-power.md).
+
 | Domain sport | FIT sport / sub-sport |
 | --- | --- |
 | Running, treadmill running, trail running | running / generic, treadmill, trail |

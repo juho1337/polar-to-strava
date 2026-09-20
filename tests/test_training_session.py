@@ -82,7 +82,9 @@ def test_separate_streams_merge_by_timestamp_and_route() -> None:
     first, middle, last = activity.trackpoints
     assert first.location is not None and first.location.latitude == 60.17
     assert middle.location is not None and middle.location.longitude == 24.95
-    assert middle.location.altitude_m == 20
+    assert middle.altitude_m == 20
+    assert middle.location.altitude_m is None
+    assert first.recorded_altitude_m is None  # sensor stream wins over route elevation
     assert middle.speed_mps == pytest.approx(3.0)
     assert middle.cadence is not None and middle.cadence.rpm == 82
     assert middle.power is not None and middle.power.watts == 250

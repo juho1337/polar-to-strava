@@ -171,6 +171,7 @@ class TrackPoint(ExtensibleDomainModel):
 
     timestamp: datetime
     location: Location | None = None
+    altitude_m: float | None = None
     distance_m: float | None = Field(default=None, ge=0)
     speed_mps: float | None = Field(default=None, ge=0)
     heart_rate: HeartRate | None = None
@@ -185,12 +186,19 @@ class TrackPoint(ExtensibleDomainModel):
             raise ValueError("timestamp must include a timezone")
         return value
 
-    @field_validator("distance_m", "speed_mps")
+    @field_validator("altitude_m", "distance_m", "speed_mps")
     @classmethod
     def finite(cls, value: float | None) -> float | None:
         if value is not None and not isfinite(value):
             raise ValueError("measurement must be finite")
         return value
+
+    @property
+    def recorded_altitude_m(self) -> float | None:
+        """Independent altitude, with legacy location altitude as fallback."""
+        if self.altitude_m is not None:
+            return self.altitude_m
+        return self.location.altitude_m if self.location is not None else None
 
 
 class Lap(ExtensibleDomainModel):

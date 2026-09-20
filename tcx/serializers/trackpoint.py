@@ -30,10 +30,8 @@ class TrackPointSerializer:
             position = etree.SubElement(element, tag("Position"))
             etree.SubElement(position, tag("LatitudeDegrees")).text = str(point.location.latitude)
             etree.SubElement(position, tag("LongitudeDegrees")).text = str(point.location.longitude)
-            if point.location.altitude_m is not None:
-                etree.SubElement(element, tag("AltitudeMeters")).text = str(
-                    point.location.altitude_m
-                )
+        if point.recorded_altitude_m is not None:
+            etree.SubElement(element, tag("AltitudeMeters")).text = str(point.recorded_altitude_m)
         if point.distance_m is not None:
             etree.SubElement(element, tag("DistanceMeters")).text = str(point.distance_m)
         if point.heart_rate is not None:

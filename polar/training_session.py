@@ -116,6 +116,10 @@ def _stream_points(
             if field == "speed_mps":
                 value /= 3.6
             by_time.setdefault(at, {})[field] = value
+    # Distinct Polar altitude streams have different timestamps and, for real
+    # exports, different elevation ranges. Never mix route elevation into a
+    # session that has a populated standalone altitude stream.
+    has_sensor_altitude = any("altitude_m" in values for values in by_time.values())
     route = exercise.get("recordedRoute", samples.get("recordedRoute", [])) or []
     if isinstance(route, Mapping):
         route = route.get("points", route.get("locations", []))
@@ -133,7 +137,7 @@ def _stream_points(
         fields["latitude"] = latitude
         fields["longitude"] = longitude
         altitude = _number(item.get("altitude"), "altitude")
-        if altitude is not None:
+        if altitude is not None and not has_sensor_altitude:
             fields["altitude_m"] = altitude
     points: list[TrackPoint] = []
     for at, values in sorted(by_time.items()):
@@ -142,12 +146,12 @@ def _stream_points(
             location = Location(
                 latitude=values["latitude"],
                 longitude=values["longitude"],
-                altitude_m=values.get("altitude_m"),
             )
         points.append(
             TrackPoint(
                 timestamp=at,
                 location=location,
+                altitude_m=values.get("altitude_m"),
                 distance_m=values.get("distance_m"),
                 speed_mps=values.get("speed_mps"),
                 heart_rate=(
@@ -157,11 +161,6 @@ def _stream_points(
                 power=Power(watts=round(values["power"])) if "power" in values else None,
                 temperature=(
                     Temperature(celsius=values["temperature"]) if "temperature" in values else None
-                ),
-                extensions=(
-                    {"altitude_without_gps_m": values["altitude_m"]}
-                    if location is None and "altitude_m" in values
-                    else {}
                 ),
             )
         )
