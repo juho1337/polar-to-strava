@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
+from itertools import repeat
 from math import isclose
 from pathlib import Path
 from time import perf_counter
@@ -236,6 +239,112 @@ def _duplicates(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
     return pairs
 
 
+def _process_one(
+    path: Path,
+    source: Path,
+    fit_directory: Path,
+    overwrite: bool,
+    importer: ActivityImporter,
+    validator: Validator,
+) -> dict[str, Any]:
+    """Audit a single source in an isolated worker."""
+    relative = path.relative_to(source).as_posix()
+    target = fit_directory / output_name(path, source, "fit")
+    sport, source_counts = _source_info(path)
+    row: dict[str, Any] = {
+        "source": relative,
+        "source_filename": path.name,
+        "source_id": path.stem,
+        "output_fit": str(target),
+        "original_sport": sport,
+        "source_counts": source_counts,
+        "status": "pending",
+        "failure_stage": None,
+        "error": None,
+        "warnings": [],
+    }
+    try:
+        activity = importer.import_activity(path)
+    except Exception as error:
+        row.update(
+            status="failed",
+            failure_stage="import",
+            error=str(error),
+            error_type=type(error).__name__,
+        )
+        return row
+    row["parsed"] = True
+    validation = validator.validate(activity)
+    row["validation_issues"] = [issue.code for issue in validation.issues]
+    if not validation.is_valid:
+        row.update(
+            status="failed",
+            failure_stage="domain_validation",
+            error="; ".join(issue.message for issue in validation.issues),
+        )
+        return row
+    counts = _domain_counts(activity)
+    fit_sport, fit_sub_sport = SPORTS[activity.sport]
+    row.update(
+        started_at=activity.started_at.isoformat(),
+        ended_at=activity.ended_at.isoformat(),
+        utc_offset_minutes=int(
+            (activity.started_at.utcoffset() or timedelta()).total_seconds() / 60
+        ),
+        elapsed_s=activity.duration.total_seconds(),
+        timer_s=activity.recorded_duration_s,
+        domain_sport=activity.sport.value,
+        fit_sport=fit_sport.name.lower(),
+        fit_sub_sport=fit_sub_sport.name.lower(),
+        distance_m=activity.distance_m,
+        calories=activity.calories,
+        average_hr=activity.average_heart_rate_bpm,
+        maximum_hr=activity.maximum_heart_rate_bpm,
+        ascent_m=activity.ascent_m,
+        descent_m=activity.descent_m,
+        domain_counts=counts,
+    )
+    row["warnings"] = _warnings(activity, source_counts, counts) + [
+        issue.code for issue in validation.issues if issue.severity.value == "warning"
+    ]
+    if target.exists() and not overwrite:
+        row["status"] = "skipped_existing"
+    else:
+        try:
+            content = FITBuilder().build(activity)
+        except Exception as error:
+            row.update(
+                status="failed",
+                failure_stage="fit_generation",
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+            return row
+        try:
+            FITWriter().write(content, target)
+        except OSError as error:
+            row.update(
+                status="failed",
+                failure_stage="fit_write",
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+            return row
+        row["status"] = "converted"
+    try:
+        fit_counts, size = _decode_fit(target, activity)
+        row.update(fit_counts=fit_counts, fit_bytes=size, fit_valid=True)
+    except Exception as error:
+        row.update(
+            status="failed",
+            failure_stage="fit_decode_validation",
+            error=str(error),
+            error_type=type(error).__name__,
+            fit_valid=False,
+        )
+    return row
+
+
 class MigrationAudit:
     """Process one workout at a time and account for every discovered source."""
 
@@ -248,103 +357,20 @@ class MigrationAudit:
         output.mkdir(parents=True, exist_ok=True)
         fit_directory = output / "fits"
         paths = tuple(self.importer.scan(source))
-        rows: list[dict[str, Any]] = []
-        for path in paths:
-            relative = path.relative_to(source).as_posix()
-            target = fit_directory / output_name(path, source, "fit")
-            sport, source_counts = _source_info(path)
-            row: dict[str, Any] = {
-                "source": relative,
-                "source_filename": path.name,
-                "source_id": path.stem,
-                "output_fit": str(target),
-                "original_sport": sport,
-                "source_counts": source_counts,
-                "status": "pending",
-                "failure_stage": None,
-                "error": None,
-                "warnings": [],
-            }
-            rows.append(row)
-            try:
-                activity = self.importer.import_activity(path)
-            except Exception as error:
-                row.update(
-                    status="failed",
-                    failure_stage="import",
-                    error=str(error),
-                    error_type=type(error).__name__,
+        with ProcessPoolExecutor(
+            max_workers=max(1, min(8, len(paths), os.cpu_count() or 2))
+        ) as executor:
+            rows = list(
+                executor.map(
+                    _process_one,
+                    paths,
+                    repeat(source),
+                    repeat(fit_directory),
+                    repeat(overwrite),
+                    repeat(self.importer),
+                    repeat(self.validator),
                 )
-                continue
-            row["parsed"] = True
-            validation = self.validator.validate(activity)
-            row["validation_issues"] = [issue.code for issue in validation.issues]
-            if not validation.is_valid:
-                row.update(
-                    status="failed",
-                    failure_stage="domain_validation",
-                    error="; ".join(issue.message for issue in validation.issues),
-                )
-                continue
-            counts = _domain_counts(activity)
-            fit_sport, fit_sub_sport = SPORTS[activity.sport]
-            row.update(
-                started_at=activity.started_at.isoformat(),
-                ended_at=activity.ended_at.isoformat(),
-                utc_offset_minutes=int(
-                    (activity.started_at.utcoffset() or timedelta()).total_seconds() / 60
-                ),
-                elapsed_s=activity.duration.total_seconds(),
-                timer_s=activity.recorded_duration_s,
-                domain_sport=activity.sport.value,
-                fit_sport=fit_sport.name.lower(),
-                fit_sub_sport=fit_sub_sport.name.lower(),
-                distance_m=activity.distance_m,
-                calories=activity.calories,
-                average_hr=activity.average_heart_rate_bpm,
-                maximum_hr=activity.maximum_heart_rate_bpm,
-                ascent_m=activity.ascent_m,
-                descent_m=activity.descent_m,
-                domain_counts=counts,
             )
-            row["warnings"] = _warnings(activity, source_counts, counts) + [
-                issue.code for issue in validation.issues if issue.severity.value == "warning"
-            ]
-            if target.exists() and not overwrite:
-                row["status"] = "skipped_existing"
-            else:
-                try:
-                    content = FITBuilder().build(activity)
-                except Exception as error:
-                    row.update(
-                        status="failed",
-                        failure_stage="fit_generation",
-                        error=str(error),
-                        error_type=type(error).__name__,
-                    )
-                    continue
-                try:
-                    FITWriter().write(content, target)
-                except OSError as error:
-                    row.update(
-                        status="failed",
-                        failure_stage="fit_write",
-                        error=str(error),
-                        error_type=type(error).__name__,
-                    )
-                    continue
-                row["status"] = "converted"
-            try:
-                fit_counts, size = _decode_fit(target, activity)
-                row.update(fit_counts=fit_counts, fit_bytes=size, fit_valid=True)
-            except Exception as error:
-                row.update(
-                    status="failed",
-                    failure_stage="fit_decode_validation",
-                    error=str(error),
-                    error_type=type(error).__name__,
-                    fit_valid=False,
-                )
         statuses = Counter(row["status"] for row in rows)
         failures = Counter(row.get("failure_stage") for row in rows if row["status"] == "failed")
         warnings = Counter(warning for row in rows for warning in row["warnings"])

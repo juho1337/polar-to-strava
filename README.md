@@ -57,6 +57,8 @@ this keeps sessions on the same date distinct. Existing FIT files are decoded an
 `skipped_existing` without being rewritten. Use `--overwrite` to regenerate them. Report totals
 reconcile discovered sources as converted, skipped, or failed; parsed and validated are independent
 milestones. Failures identify import, domain validation, FIT generation, write, or decode stages.
+The audit uses up to eight worker processes for FIT encoding and validation; report ordering follows
+the deterministic source scan. Directory `convert` remains a sequential alternative.
 Warnings flag review candidates and do not by themselves fail a workout. Duplicate candidates
 are conservative source comparisons, never automatic deletions.
 
