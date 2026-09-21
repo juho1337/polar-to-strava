@@ -1,6 +1,7 @@
 """Polar implementation of the application importer port."""
 
 from collections.abc import Iterable
+from datetime import timezone
 from pathlib import Path
 
 from domain import Activity
@@ -15,6 +16,6 @@ class PolarImporter:
         """Yield Polar activity files recursively."""
         return iter_activity_files(directory)
 
-    def import_activity(self, path: Path) -> Activity:
+    def import_activity(self, path: Path, timezone_override: timezone | None = None) -> Activity:
         """Parse a single Polar export."""
-        return parse_activity(path)
+        return parse_activity(path, timezone_override)

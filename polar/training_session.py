@@ -62,13 +62,23 @@ def _duration(value: Any) -> float | None:
     )
 
 
-def _offset(exercise: Mapping[str, Any], session: Mapping[str, Any]) -> timezone:
+def _offset(
+    exercise: Mapping[str, Any], session: Mapping[str, Any], override: timezone | None = None
+) -> timezone:
     minutes = exercise.get(
         "timezoneOffset", exercise.get("timeZoneOffset", session.get("timeZoneOffset"))
     )
-    if not isinstance(minutes, (int, float)) or abs(minutes) > 14 * 60:
+    if isinstance(minutes, (int, float)):
+        if override is not None:
+            raise ValueError("timezone override conflicts with authoritative source timezone")
+        if abs(minutes) > 14 * 60:
+            raise ValueError("training session requires a valid timezone offset in minutes")
+        return timezone(timedelta(minutes=minutes))
+    if override is not None:
+        return override
+    if not isinstance(minutes, (int, float)):
         raise ValueError("training session requires a valid timezone offset in minutes")
-    return timezone(timedelta(minutes=minutes))
+    raise AssertionError("unreachable")
 
 
 def _time(value: Any, offset: timezone, label: str, anchor: datetime | None = None) -> datetime:
@@ -222,15 +232,22 @@ def _zones(exercises: Sequence[Mapping[str, Any]]) -> dict[str, tuple[Zone, ...]
     }
 
 
-def parse_training_session(payload: Mapping[str, Any], path: Path) -> Activity:
+def parse_training_session(
+    payload: Mapping[str, Any], path: Path, timezone_override: timezone | None = None
+) -> Activity:
     """Map one user-data training session into a provider-neutral Activity."""
+    raw_start = payload.get("startTime")
+    if timezone_override is not None and isinstance(raw_start, str):
+        parsed_start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+        if parsed_start.tzinfo is not None:
+            raise ValueError("timezone override conflicts with authoritative source timestamp")
     raw_exercises = payload.get("exercises")
     if not isinstance(raw_exercises, list) or not raw_exercises:
         raise ValueError("training session requires a nonempty exercises array")
     if not all(isinstance(exercise, Mapping) for exercise in raw_exercises):
         raise ValueError("each exercise must be an object")
     exercises: list[Mapping[str, Any]] = raw_exercises
-    session_offset = _offset(exercises[0], payload)
+    session_offset = _offset(exercises[0], payload, timezone_override)
     started_at = _time(payload.get("startTime"), session_offset, "session startTime")
     stopped_at = _time(payload.get("stopTime"), session_offset, "session stopTime")
     all_points: list[TrackPoint] = []
@@ -239,7 +256,7 @@ def parse_training_session(payload: Mapping[str, Any], path: Path) -> Activity:
     extended_route_count = 0
     extended_route_times: set[datetime] = set()
     for exercise in exercises:
-        offset = _offset(exercise, payload)
+        offset = _offset(exercise, payload, timezone_override)
         exercise_start = _time(exercise.get("startTime"), offset, "exercise startTime")
         exercise_end = _time(exercise.get("stopTime"), offset, "exercise stopTime")
         if exercise_start < started_at or exercise_end > stopped_at:

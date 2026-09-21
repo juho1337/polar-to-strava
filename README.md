@@ -19,6 +19,7 @@ python main.py convert C:\PolarExport\training-session-123.json --output C:\Conv
 python main.py convert C:\PolarExport --output C:\Converted
 python main.py convert C:\PolarExport --output C:\ConvertedFit --format fit
 python main.py audit C:\PolarExport --output C:\PrivateAudit
+python main.py audit C:\PolarExport --output C:\PrivateAudit --config C:\Private\migration-config.json --overwrite
 ```
 
 `scan` discovers `training-session-*.json` recursively from the configured `polar_export` directory. Polar user-data exports contain several categories: `training-session-*.json` holds recorded workouts, while `activity-*.json` holds daily activity tracking and is excluded from workout conversion. `inspect` reports source counts and measurements for one activity. `convert` accepts one JSON file or a directory. Directory conversion processes each file independently and gives each output a deterministic name based on its relative path, with a short hash to prevent filename collisions. An existing output is preserved unless `--overwrite` is supplied. A directory run reports successes, warnings, failures, and totals; its exit code is 1 if any activity fails.
@@ -50,7 +51,8 @@ Manual Strava FIT uploads have preserved the heart-rate graph for tested Padel a
 See [FIT export details](docs/fit-export.md).
 
 `audit` recursively processes only `training-session-*.json`, converts each to FIT, decodes it again,
-and writes `migration-audit.json`, `.csv`, and `.md` beside a `fits/` directory. It continues after
+and creates a portable migration workspace. It writes audit reports, versioned JSON and CSV
+manifests, a timezone configuration template, and a `fits/` directory. It continues after
 individual failures and exits with code 1 if any source fails. Each output name retains the full
 source stem plus the first 10 SHA-256 hexadecimal digits of the lowercased relative source path;
 this keeps sessions on the same date distinct. Existing FIT files are decoded and recorded as
@@ -67,3 +69,5 @@ outside the repository. No Strava upload or API call occurs during bulk conversi
 
 See [Sprint 8.1 compatibility evidence](docs/sprint-8-1-compatibility.md) for
 the verified route-bound, lap-timing, timezone, and duplicate-timestamp rules.
+See [Migration workspace](docs/migration-workspace.md) for manifest version 1, eligibility,
+portable identity, timezone overrides, exclusions, and the future uploader boundary.

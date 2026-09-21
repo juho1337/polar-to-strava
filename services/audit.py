@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from itertools import repeat
 from math import isclose
 from pathlib import Path
@@ -19,10 +20,20 @@ from fit_tool.profile.messages.record_message import RecordMessage  # type: igno
 from fit_tool.profile.messages.session_message import SessionMessage  # type: ignore[import-untyped]
 
 from core.contracts import ActivityImporter
+from core.errors import ConfigurationError
 from domain import Activity, Sport
 from fit import FITBuilder, FITWriter
 from fit.builder import SPORTS, fit_time
-from services.conversion import output_name
+from polar import PolarImporter
+from services.migration import (
+    MANIFEST_VERSION,
+    MigrationConfig,
+    classify,
+    file_sha256,
+    load_migration_config,
+    source_sha256,
+    stable_activity_id,
+)
 from services.validation import Validator
 
 SENSORS = ("gps", "hr", "altitude", "distance", "speed", "cadence", "power", "temperature")
@@ -87,6 +98,33 @@ def _source_info(path: Path) -> tuple[str | None, dict[str, int]]:
                 isinstance(item, dict) and item.get("currentPower") is not None for item in left
             )
     return ",".join(sorted(set(sports))) if sports else None, result
+
+
+def _source_metadata(path: Path) -> dict[str, Any]:
+    """Extract small review fields without interpreting unresolved local time."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    exercises = payload.get("exercises")
+    first = (
+        exercises[0]
+        if isinstance(exercises, list) and exercises and isinstance(exercises[0], dict)
+        else {}
+    )
+    return {
+        "source_local_start": payload.get("startTime", payload.get("start-time")),
+        "source_timezone_offset_minutes": first.get(
+            "timezoneOffset", first.get("timeZoneOffset", payload.get("timeZoneOffset"))
+        ),
+        "source_duration": payload.get("duration"),
+        "source_distance": payload.get("distance", first.get("distance")),
+        "source_calories": payload.get("kiloCalories", payload.get("calories")),
+        "source_average_hr": payload.get("averageHeartRate"),
+        "source_maximum_hr": payload.get("maximumHeartRate"),
+    }
 
 
 def _domain_counts(activity: Activity) -> dict[str, int]:
@@ -212,12 +250,12 @@ def _warnings(activity: Activity, source: dict[str, int], counts: dict[str, int]
     return warnings
 
 
-def _duplicates(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _duplicates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     valid = sorted(
         (row for row in rows if row.get("started_at") and row.get("domain_sport")),
         key=lambda row: row["started_at"],
     )
-    pairs: list[dict[str, str]] = []
+    pairs: list[dict[str, Any]] = []
     for index, left in enumerate(valid):
         start = datetime.fromisoformat(left["started_at"])
         for right in valid[index + 1 :]:
@@ -242,7 +280,22 @@ def _duplicates(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
                 and abs(distance - other_distance) > max(100, distance * 0.05)
             ):
                 continue
-            pairs.append({"first": left["source"], "second": right["source"]})
+            pair = {
+                "first_stable_activity_id": left["stable_activity_id"],
+                "second_stable_activity_id": right["stable_activity_id"],
+                "start_difference_seconds": seconds,
+                "sport": left["domain_sport"],
+                "duration_difference_seconds": abs(duration - other_duration),
+                "distance_difference_m": (
+                    abs(distance - other_distance)
+                    if distance is not None and other_distance is not None
+                    else None
+                ),
+            }
+            pairs.append(pair)
+            for row in (left, right):
+                if "review_duplicate" not in row["warnings"]:
+                    row["warnings"].append("review_duplicate")
     return pairs
 
 
@@ -267,16 +320,25 @@ def _process_one(
     overwrite: bool,
     importer: ActivityImporter,
     validator: Validator,
+    fingerprint: str,
+    timezone_override: str | None,
 ) -> dict[str, Any]:
     """Audit a single source in an isolated worker."""
     relative = path.relative_to(source).as_posix()
-    target = fit_directory / output_name(path, source, "fit")
+    stable_id = stable_activity_id(fingerprint)
+    relative_hash = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:10]
+    target = fit_directory / f"{fingerprint}-{relative_hash}.fit"
     sport, source_counts = _source_info(path)
+    source_metadata = _source_metadata(path)
     row: dict[str, Any] = {
         "source": relative,
         "source_filename": path.name,
         "source_id": path.stem,
         "output_fit": str(target),
+        "fit_relative_path": f"fits/{target.name}",
+        "source_sha256": fingerprint,
+        "stable_activity_id": stable_id,
+        **source_metadata,
         "original_sport": sport,
         "source_counts": source_counts,
         "status": "pending",
@@ -285,7 +347,23 @@ def _process_one(
         "warnings": [],
     }
     try:
-        activity = importer.import_activity(path)
+        if timezone_override is not None:
+            if not isinstance(importer, PolarImporter):
+                raise ValueError("timezone overrides require the Polar importer")
+            activity = importer.import_activity(
+                path,
+                MigrationConfig.model_validate(
+                    {"activity_overrides": {stable_id: {"timezone_offset": timezone_override}}}
+                )
+                .activity_overrides[stable_id]
+                .as_timezone(),
+            )
+            row["timezone_resolution_source"] = "manual_override"
+            row["manual_override_used"] = True
+        else:
+            activity = importer.import_activity(path)
+            row["timezone_resolution_source"] = "source"
+            row["manual_override_used"] = False
     except Exception as error:
         row.update(
             status="failed",
@@ -293,6 +371,8 @@ def _process_one(
             error=str(error),
             error_type=type(error).__name__,
         )
+        row["timezone_resolution_source"] = "unresolved"
+        row["manual_override_used"] = False
         return row
     row["parsed"] = True
     validation = validator.validate(activity)
@@ -308,6 +388,7 @@ def _process_one(
     fit_sport, fit_sub_sport = SPORTS[activity.sport]
     row.update(
         started_at=activity.started_at.isoformat(),
+        resolved_utc_start=activity.started_at.astimezone(UTC).isoformat(),
         ended_at=activity.ended_at.isoformat(),
         utc_offset_minutes=int(
             (activity.started_at.utcoffset() or timedelta()).total_seconds() / 60
@@ -354,7 +435,12 @@ def _process_one(
         row["status"] = "converted"
     try:
         fit_counts, size = _decode_fit(target, activity)
-        row.update(fit_counts=fit_counts, fit_bytes=size, fit_valid=True)
+        row.update(
+            fit_counts=fit_counts,
+            fit_bytes=size,
+            fit_valid=True,
+            fit_sha256=file_sha256(target),
+        )
     except Exception as error:
         row.update(
             status="failed",
@@ -373,11 +459,52 @@ class MigrationAudit:
         self.importer = importer
         self.validator = validator
 
-    def run(self, source: Path, output: Path, overwrite: bool = False) -> dict[str, Any]:
+    def run(
+        self,
+        source: Path,
+        output: Path,
+        overwrite: bool = False,
+        config: Path | None = None,
+    ) -> dict[str, Any]:
         started = perf_counter()
         output.mkdir(parents=True, exist_ok=True)
         fit_directory = output / "fits"
         paths = tuple(self.importer.scan(source))
+        fingerprints = tuple(source_sha256(path) for path in paths)
+        configuration = load_migration_config(config)
+        known_ids = {stable_activity_id(value) for value in fingerprints}
+        unknown_ids = set(configuration.activity_overrides) - known_ids
+        if unknown_ids:
+            raise ConfigurationError(
+                "Migration configuration contains unknown stable activity IDs: "
+                + ", ".join(sorted(unknown_ids))
+            )
+        overrides = tuple(
+            configuration.activity_overrides.get(stable_activity_id(value))
+            for value in fingerprints
+        )
+        override_values = tuple(
+            item.timezone_offset if item is not None else None for item in overrides
+        )
+        for path, stable_id, override in zip(paths, fingerprints, override_values, strict=True):
+            if override is None:
+                continue
+            metadata = _source_metadata(path)
+            local_start = metadata.get("source_local_start")
+            timestamp_has_zone = False
+            if isinstance(local_start, str):
+                try:
+                    timestamp_has_zone = (
+                        datetime.fromisoformat(local_start.replace("Z", "+00:00")).tzinfo
+                        is not None
+                    )
+                except ValueError:
+                    pass
+            if metadata.get("source_timezone_offset_minutes") is not None or timestamp_has_zone:
+                raise ConfigurationError(
+                    "Timezone override conflicts with authoritative source timezone for "
+                    + stable_activity_id(stable_id)
+                )
         with ProcessPoolExecutor(
             max_workers=max(1, min(8, len(paths), os.cpu_count() or 2))
         ) as executor:
@@ -390,9 +517,16 @@ class MigrationAudit:
                     repeat(overwrite),
                     repeat(self.importer),
                     repeat(self.validator),
+                    fingerprints,
+                    override_values,
                 )
             )
+        duplicate_candidates = _duplicates(rows)
+        for row in rows:
+            row["migration_status"] = classify(row).value
+            row["migration_reason"] = row.get("error") if not row.get("fit_valid") else None
         statuses = Counter(row["status"] for row in rows)
+        migration_statuses = Counter(row["migration_status"] for row in rows)
         failures = Counter(row.get("failure_stage") for row in rows if row["status"] == "failed")
         warnings = Counter(warning for row in rows for warning in row["warnings"])
         sports: dict[str, dict[str, Any]] = {}
@@ -448,6 +582,7 @@ class MigrationAudit:
                 "failure_stages": dict(failures),
                 "failure_categories": _failure_categories(rows),
                 "warning_counts": dict(warnings),
+                "migration_status_counts": dict(sorted(migration_statuses.items())),
                 "total_fit_bytes": sum(row.get("fit_bytes", 0) for row in rows),
                 "generated_fit_bytes": sum(
                     row.get("fit_bytes", 0) for row in rows if row["status"] == "converted"
@@ -461,11 +596,134 @@ class MigrationAudit:
             },
             "sports": dict(sorted(sports.items())),
             "sensors": sensor_inventory,
-            "duplicate_candidates": _duplicates(rows),
+            "duplicate_candidates": duplicate_candidates,
             "activities": rows,
         }
         self._write_reports(output, report)
+        self._write_manifest(output, source, rows, migration_statuses)
         return report
+
+    @staticmethod
+    def _manifest_entry(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "stable_activity_id": row["stable_activity_id"],
+            "source": {
+                "relative_path": row["source"],
+                "filename": row["source_filename"],
+                "sha256": row["source_sha256"],
+                "local_start": row.get("source_local_start"),
+            },
+            "time": {
+                "resolved_utc_start": row.get("resolved_utc_start"),
+                "resolution_source": row.get("timezone_resolution_source", "unresolved"),
+            },
+            "sport": {
+                "polar": row.get("original_sport"),
+                "domain": row.get("domain_sport"),
+                "fit": row.get("fit_sport"),
+                "fit_sub_sport": row.get("fit_sub_sport"),
+                "fallback": "generic_sport_fallback" in row["warnings"],
+            },
+            "summary": {
+                "timer_seconds": row.get("timer_s"),
+                "elapsed_seconds": row.get("elapsed_s"),
+                "distance_m": row.get("distance_m", row.get("source_distance")),
+                "calories": row.get("calories", row.get("source_calories")),
+            },
+            "fit": {
+                "relative_path": row.get("fit_relative_path") if row.get("fit_valid") else None,
+                "sha256": row.get("fit_sha256"),
+                "size_bytes": row.get("fit_bytes"),
+                "valid": bool(row.get("fit_valid")),
+            },
+            "migration": {
+                "status": row["migration_status"],
+                "warnings": sorted(row["warnings"]),
+                "reason": row.get("migration_reason"),
+                "manual_override_used": bool(row.get("manual_override_used")),
+            },
+        }
+
+    @classmethod
+    def _write_manifest(
+        cls,
+        output: Path,
+        source: Path,
+        rows: list[dict[str, Any]],
+        statuses: Counter[str],
+    ) -> None:
+        entries = [cls._manifest_entry(row) for row in rows]
+        manifest = {
+            "manifest_version": MANIFEST_VERSION,
+            "source": {"type": "polar_user_data_export", "workout_count": len(entries)},
+            "summary": {"total": len(entries), "status_counts": dict(sorted(statuses.items()))},
+            "activities": entries,
+        }
+        (output / "migration-manifest.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+        columns = [
+            "stable_activity_id",
+            "source_relative_path",
+            "source_filename",
+            "source_sha256",
+            "local_start",
+            "resolved_utc_start",
+            "timezone_source",
+            "status",
+            "warnings",
+            "reason",
+            "fit_relative_path",
+            "fit_sha256",
+            "fit_size_bytes",
+            "fit_valid",
+        ]
+        with (output / "migration-manifest.csv").open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=columns)
+            writer.writeheader()
+            for entry in entries:
+                writer.writerow(
+                    {
+                        "stable_activity_id": entry["stable_activity_id"],
+                        "source_relative_path": entry["source"]["relative_path"],
+                        "source_filename": entry["source"]["filename"],
+                        "source_sha256": entry["source"]["sha256"],
+                        "local_start": entry["source"]["local_start"],
+                        "resolved_utc_start": entry["time"]["resolved_utc_start"],
+                        "timezone_source": entry["time"]["resolution_source"],
+                        "status": entry["migration"]["status"],
+                        "warnings": ";".join(entry["migration"]["warnings"]),
+                        "reason": entry["migration"]["reason"],
+                        "fit_relative_path": entry["fit"]["relative_path"],
+                        "fit_sha256": entry["fit"]["sha256"],
+                        "fit_size_bytes": entry["fit"]["size_bytes"],
+                        "fit_valid": entry["fit"]["valid"],
+                    }
+                )
+        requirements = {
+            row["stable_activity_id"]: {
+                "source_filename": row["source_filename"],
+                "local_start": row.get("source_local_start"),
+                "sport": row.get("original_sport"),
+                "duration": row.get("source_duration"),
+                "distance": row.get("source_distance"),
+                "calories": row.get("source_calories"),
+                "average_hr": row.get("source_average_hr"),
+                "maximum_hr": row.get("source_maximum_hr"),
+            }
+            for row in rows
+            if row["migration_status"] == "requires_configuration"
+        }
+        template = {
+            "config_version": 1,
+            "activity_overrides": {
+                identifier: {"timezone_offset": None} for identifier in requirements
+            },
+            "review_requirements": requirements,
+        }
+        (output / "migration-config.template.json").write_text(
+            json.dumps(template, indent=2), encoding="utf-8"
+        )
 
     @staticmethod
     def _write_reports(output: Path, report: dict[str, Any]) -> None:

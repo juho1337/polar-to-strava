@@ -8,4 +8,7 @@ output/
 migration-audit.json
 migration-audit.csv
 migration-audit.md
+migration-manifest.json
+migration-manifest.csv
+migration-config.template.json
 *.sqlite3

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -100,13 +100,13 @@ def load_activity_json(path: Path | str) -> Mapping[str, Any]:
     return payload
 
 
-def parse_activity(path: Path | str) -> Activity:
+def parse_activity(path: Path | str, timezone_override: timezone | None = None) -> Activity:
     """Load and validate one Polar export as an immutable domain activity."""
     activity_path = Path(path)
     try:
         payload = load_activity_json(activity_path)
         if "exercises" in payload or "startTime" in payload:
-            return parse_training_session(payload, activity_path)
+            return parse_training_session(payload, activity_path, timezone_override)
         if "summary" in payload and "date" in payload:
             raise ValueError("daily activity tracking JSON is not a training session")
         return _parse_payload(payload)

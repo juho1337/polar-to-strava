@@ -22,18 +22,25 @@ def audit(
     input: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
     output: Annotated[Path, typer.Option("--output", "-o")],
     overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
+    config: Annotated[Path | None, typer.Option("--config", exists=True, dir_okay=False)] = None,
 ) -> None:
     """Convert workouts to FIT and write a complete migration audit."""
     if output.exists() and not output.is_dir():
         raise typer.BadParameter("Audit output must be a directory.")
-    report = MigrationAudit(PolarImporter(), ActivityValidator()).run(input, output, overwrite)
+    try:
+        report = MigrationAudit(PolarImporter(), ActivityValidator()).run(
+            input, output, overwrite, config
+        )
+    except PolarToStravaError as error:
+        console.print(f"[red]Error:[/red] {error}")
+        raise typer.Exit(code=1) from error
     summary = report["summary"]
     console.print(
         f"Discovered {summary['discovered']}; parsed {summary['parsed']}; "
         f"converted {summary['converted']}; validated {summary['validated']}; "
         f"skipped {summary['skipped_existing']}; failed {summary['failed']}."
     )
-    console.print(f"Reports: {output / 'migration-audit.json'}, .csv, .md")
+    console.print(f"Migration workspace: {output}")
     if summary["failed"]:
         raise typer.Exit(code=1)
 
