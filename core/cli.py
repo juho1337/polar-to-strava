@@ -1,5 +1,6 @@
 """Command line interface."""
 
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
@@ -12,9 +13,118 @@ from core.logging import configure_logging
 from polar import PolarImporter
 from services import ActivityValidator, ConversionService
 from services.audit import MigrationAudit
+from strava.client import StravaClient, TokenStore, authorization_url, credentials
+from strava.models import MigrationManifest
+from strava.state import UploadStateStore
+from strava.uploader import Uploader
 
 app = typer.Typer(help="Convert Polar Flow exports to Strava-ready activities.")
+strava_app = typer.Typer(help="Authenticate and upload a migration workspace safely.")
+app.add_typer(strava_app, name="strava")
 console = Console()
+
+
+def _state_store(workspace: Path) -> UploadStateStore:
+    return UploadStateStore(workspace / "migration-state.sqlite3")
+
+
+@strava_app.command("auth")
+def strava_auth(
+    workspace: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    redirect_uri: Annotated[str, typer.Option("--redirect-uri")] = "http://localhost",
+    code: Annotated[str | None, typer.Option("--code", hidden=True)] = None,
+) -> None:
+    """Authorize this local workspace using Strava OAuth."""
+    client_id, client_secret = credentials()
+    url, _ = authorization_url(client_id, redirect_uri)
+    console.print("Open this URL and authorize activity:write access:")
+    console.print(url)
+    authorization_code = code or typer.prompt("Authorization code", hide_input=True)
+    client = StravaClient(client_id, client_secret, TokenStore(workspace / ".strava-tokens.json"))
+    tokens = client.exchange_code(authorization_code)
+    if "activity:write" not in tokens.scope.split():
+        raise typer.BadParameter("Strava did not grant activity:write")
+    console.print("Strava authorization saved locally.")
+
+
+@strava_app.command("upload")
+def strava_upload(
+    workspace: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    limit: Annotated[int | None, typer.Option("--limit", min=1)] = None,
+    activity_id: Annotated[str | None, typer.Option("--activity-id")] = None,
+    all_activities: Annotated[bool, typer.Option("--all")] = False,
+    from_date: Annotated[str | None, typer.Option("--from")] = None,
+    to_date: Annotated[str | None, typer.Option("--to")] = None,
+) -> None:
+    """Upload eligible manifest activities with persistent resume state."""
+    if sum((limit is not None, activity_id is not None, all_activities)) != 1:
+        raise typer.BadParameter("Choose exactly one of --limit, --activity-id, or --all")
+    try:
+        parsed_from = date.fromisoformat(from_date) if from_date else None
+        parsed_to = date.fromisoformat(to_date) if to_date else None
+    except ValueError as error:
+        raise typer.BadParameter("Dates must use YYYY-MM-DD") from error
+    try:
+        with _state_store(workspace) as store:
+            client = None
+            if not dry_run:
+                client_id, client_secret = credentials()
+                client = StravaClient(
+                    client_id, client_secret, TokenStore(workspace / ".strava-tokens.json")
+                )
+            uploader = Uploader(workspace, store, client)
+            selected = uploader.select(
+                limit=limit,
+                activity_id=activity_id,
+                from_date=parsed_from,
+                to_date=parsed_to,
+            )
+            console.print(
+                f"Manifest {len(uploader.manifest.activities)}; eligible "
+                f"{sum(item.eligible for item in uploader.manifest.activities)}; selected {len(selected)}."
+            )
+            for index, item in enumerate(selected, 1):
+                assert item.time.resolved_utc_start is not None
+                console.print(
+                    f"[{index}/{len(selected)}] {item.time.resolved_utc_start.date()} "
+                    f"{item.sport.domain} {'would_upload' if dry_run else 'uploading'}"
+                )
+                if not dry_run:
+                    uploader.run([item])
+            summary = store.summary()
+            console.print("; ".join(f"{key}={value}" for key, value in summary.items()))
+    except PolarToStravaError as error:
+        console.print(f"[red]Error:[/red] {error}")
+        raise typer.Exit(code=1) from error
+
+
+@strava_app.command("status")
+def strava_status(
+    workspace: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+) -> None:
+    """Show local upload state without accessing Strava."""
+    manifest, fingerprint = MigrationManifest.load(workspace)
+    with _state_store(workspace) as store:
+        store.reconcile(manifest, fingerprint)
+        summary = store.summary()
+    console.print(f"Eligible total: {sum(item.eligible for item in manifest.activities)}")
+    for key, value in summary.items():
+        console.print(f"{key}: {value}")
+
+
+@strava_app.command("reset")
+def strava_reset(
+    workspace: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    activity_id: Annotated[str, typer.Option("--activity-id")],
+    force: Annotated[bool, typer.Option("--force")] = False,
+) -> None:
+    """Reset selected local state; never delete a remote activity."""
+    manifest, fingerprint = MigrationManifest.load(workspace)
+    with _state_store(workspace) as store:
+        store.reconcile(manifest, fingerprint)
+        store.reset(activity_id, force)
+    console.print("Local upload state reset.")
 
 
 @app.command()

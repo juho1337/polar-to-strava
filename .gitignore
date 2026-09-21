@@ -12,3 +12,5 @@ migration-manifest.json
 migration-manifest.csv
 migration-config.template.json
 *.sqlite3
+.strava-tokens.json
+strava-tokens.json

@@ -71,3 +71,5 @@ See [Sprint 8.1 compatibility evidence](docs/sprint-8-1-compatibility.md) for
 the verified route-bound, lap-timing, timezone, and duplicate-timestamp rules.
 See [Migration workspace](docs/migration-workspace.md) for manifest version 1, eligibility,
 portable identity, timezone overrides, exclusions, and the future uploader boundary.
+See [Resumable Strava uploader](docs/strava-uploader.md) for OAuth, dry runs, persistent
+state, safe upload selection, retries, rate limits, and recovery.
