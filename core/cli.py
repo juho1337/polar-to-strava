@@ -40,10 +40,9 @@ def strava_auth(
     console.print("Open this URL and authorize activity:write access:")
     console.print(url)
     authorization_code = code or typer.prompt("Authorization code", hide_input=True)
+    granted_scope = typer.prompt("Granted scope from the redirect URL")
     client = StravaClient(client_id, client_secret, TokenStore(workspace / ".strava-tokens.json"))
-    tokens = client.exchange_code(authorization_code)
-    if "activity:write" not in tokens.scope.split():
-        raise typer.BadParameter("Strava did not grant activity:write")
+    client.exchange_code(authorization_code, granted_scope)
     console.print("Strava authorization saved locally.")
 
 

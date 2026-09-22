@@ -6,7 +6,7 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -90,6 +90,29 @@ class TokenSet(BaseModel):
     refresh_token: str
     expires_at: int
     scope: str = ""
+
+
+class StravaTokenResponse(BaseModel):
+    """Documented OAuth response envelope; only required auth state is persisted."""
+
+    model_config = ConfigDict(extra="ignore")
+    token_type: Literal["Bearer"]
+    access_token: str
+    refresh_token: str
+    expires_at: int
+    expires_in: int
+    scope: str | None = None
+    athlete: dict[str, Any] | None = None
+
+    def token_set(self, fallback_scope: str | None = None) -> TokenSet:
+        scope = self.scope or fallback_scope or ""
+        normalized_scope = " ".join(scope.replace(",", " ").split())
+        return TokenSet(
+            access_token=self.access_token,
+            refresh_token=self.refresh_token,
+            expires_at=self.expires_at,
+            scope=normalized_scope,
+        )
 
 
 class UploadStatus(BaseModel):

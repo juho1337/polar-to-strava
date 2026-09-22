@@ -13,7 +13,7 @@ import httpx
 from pydantic import ValidationError
 
 from core.errors import ConfigurationError
-from strava.models import RateLimit, TokenSet, UploadStatus
+from strava.models import RateLimit, StravaTokenResponse, TokenSet, UploadStatus
 
 AUTH_URL = "https://www.strava.com/oauth/authorize"
 TOKEN_URL = "https://www.strava.com/oauth/token"
@@ -43,14 +43,19 @@ class TokenStore:
     def load(self) -> TokenSet:
         try:
             return TokenSet.model_validate_json(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValidationError) as error:
+        except (OSError, ValidationError):
             raise ConfigurationError(
                 f"Strava authentication is missing or invalid; run strava auth ({self.path})"
-            ) from error
+            ) from None
 
     def save(self, tokens: TokenSet) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(tokens.model_dump_json(indent=2), encoding="utf-8")
+        temporary = self.path.with_suffix(f"{self.path.suffix}.tmp")
+        try:
+            temporary.write_text(tokens.model_dump_json(indent=2), encoding="utf-8")
+            os.replace(temporary, self.path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def credentials() -> tuple[str, str]:
@@ -92,36 +97,49 @@ class StravaClient:
         self.http = http or httpx.Client(timeout=30)
         self.rate_limit: RateLimit | None = None
 
-    def exchange_code(self, code: str) -> TokenSet:
-        return self._token_request({"grant_type": "authorization_code", "code": code.strip()})
+    def exchange_code(self, code: str, granted_scope: str | None = None) -> TokenSet:
+        tokens = self._token_request(
+            {"grant_type": "authorization_code", "code": code.strip()},
+            fallback_scope=granted_scope,
+            persist=False,
+        )
+        if REQUIRED_SCOPE not in tokens.scope.split():
+            raise ConfigurationError(f"Strava did not grant {REQUIRED_SCOPE}")
+        self.token_store.save(tokens)
+        return tokens
 
     def access_token(self) -> str:
         tokens = self.token_store.load()
         if tokens.expires_at <= int(time.time()) + 3600:
-            refreshed = self._token_request(
-                {"grant_type": "refresh_token", "refresh_token": tokens.refresh_token}
+            tokens = self._token_request(
+                {"grant_type": "refresh_token", "refresh_token": tokens.refresh_token},
+                fallback_scope=tokens.scope,
             )
-            if not refreshed.scope:
-                refreshed = refreshed.model_copy(update={"scope": tokens.scope})
-                self.token_store.save(refreshed)
-            tokens = refreshed
         if REQUIRED_SCOPE not in tokens.scope.split():
             raise ConfigurationError(f"Strava token does not grant {REQUIRED_SCOPE}")
         return tokens.access_token
 
-    def _token_request(self, fields: dict[str, str]) -> TokenSet:
+    def _token_request(
+        self,
+        fields: dict[str, str],
+        fallback_scope: str | None = None,
+        *,
+        persist: bool = True,
+    ) -> TokenSet:
         try:
             response = self.http.post(
                 TOKEN_URL,
                 data={"client_id": self.client_id, "client_secret": self.client_secret, **fields},
             )
             response.raise_for_status()
-            tokens = TokenSet.model_validate(response.json())
+            api_response = StravaTokenResponse.model_validate(response.json())
+            tokens = api_response.token_set(fallback_scope)
         except (httpx.HTTPError, ValueError, ValidationError) as error:
             raise ConfigurationError(
                 f"Strava OAuth request failed: {type(error).__name__}"
-            ) from error
-        self.token_store.save(tokens)
+            ) from None
+        if persist:
+            self.token_store.save(tokens)
         return tokens
 
     def upload(self, path: Path, external_id: str) -> UploadStatus:

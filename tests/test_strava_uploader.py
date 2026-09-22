@@ -200,13 +200,31 @@ def test_oauth_url_token_exchange_and_refresh(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
+        if calls == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "token_type": "Bearer",
+                    "expires_at": 9_999_999_999,
+                    "expires_in": 21_600,
+                    "refresh_token": "refresh-1",
+                    "access_token": "access-1",
+                    "athlete": {
+                        "id": 123,
+                        "firstname": "Sanitized",
+                        "profile": "https://example.invalid/private.jpg",
+                    },
+                    "server_extension": "accepted",
+                },
+            )
         return httpx.Response(
             200,
             json={
-                "access_token": f"access-{calls}",
-                "refresh_token": f"refresh-{calls}",
+                "token_type": "Bearer",
+                "access_token": "access-2",
+                "refresh_token": "refresh-2",
                 "expires_at": 9_999_999_999,
-                "scope": "activity:write",
+                "expires_in": 20_566,
             },
         )
 
@@ -214,13 +232,53 @@ def test_oauth_url_token_exchange_and_refresh(tmp_path: Path) -> None:
     client = StravaClient(
         "123", "secret", tokens, httpx.Client(transport=httpx.MockTransport(handler))
     )
-    client.exchange_code("code")
+    exchanged = client.exchange_code("code", "read,activity:write")
+    assert exchanged.scope == "read activity:write"
     assert client.access_token() == "access-1"
+    persisted = json.loads(tokens.path.read_text(encoding="utf-8"))
+    assert set(persisted) == {"access_token", "refresh_token", "expires_at", "scope"}
+    assert "athlete" not in tokens.path.read_text(encoding="utf-8")
+    assert "Sanitized" not in tokens.path.read_text(encoding="utf-8")
     tokens.save(
         TokenSet(access_token="old", refresh_token="refresh", expires_at=0, scope="activity:write")
     )
     assert client.access_token() == "access-2"
-    assert "secret" not in tokens.path.read_text(encoding="utf-8")
+    rotated = tokens.load()
+    assert rotated.refresh_token == "refresh-2"
+    assert rotated.scope == "activity:write"
+
+
+def test_oauth_validation_error_does_not_expose_secrets(tmp_path: Path) -> None:
+    access = "private-access-value"
+    refresh = "private-refresh-value"
+    secret = "private-client-secret"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "token_type": "Unsupported",
+                "expires_at": 1,
+                "expires_in": 1,
+                "refresh_token": refresh,
+                "access_token": access,
+                "athlete": {"id": 123},
+            },
+        )
+
+    client = StravaClient(
+        "123",
+        secret,
+        TokenStore(tmp_path / "tokens.json"),
+        httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ConfigurationError) as caught:
+        client.exchange_code("private-authorization-code", "activity:write")
+    message = str(caught.value)
+    assert access not in message
+    assert refresh not in message
+    assert secret not in message
+    assert "private-authorization-code" not in message
 
 
 def test_missing_credentials_do_not_expose_secret(monkeypatch: pytest.MonkeyPatch) -> None:
