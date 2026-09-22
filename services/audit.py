@@ -34,6 +34,7 @@ from services.migration import (
     source_sha256,
     stable_activity_id,
 )
+from services.service_models import AuditPhase, AuditProgress, AuditProgressCallback
 from services.validation import Validator
 
 SENSORS = ("gps", "hr", "altitude", "distance", "speed", "cadence", "power", "temperature")
@@ -465,11 +466,17 @@ class MigrationAudit:
         output: Path,
         overwrite: bool = False,
         config: Path | None = None,
+        progress: AuditProgressCallback | None = None,
     ) -> dict[str, Any]:
         started = perf_counter()
         output.mkdir(parents=True, exist_ok=True)
         fit_directory = output / "fits"
+        if progress:
+            progress(AuditProgress(AuditPhase.DISCOVERY_STARTED))
         paths = tuple(self.importer.scan(source))
+        if progress:
+            progress(AuditProgress(AuditPhase.DISCOVERY_COMPLETED, total=len(paths)))
+            progress(AuditProgress(AuditPhase.PREPARING_ACTIVITIES, total=len(paths)))
         fingerprints = tuple(source_sha256(path) for path in paths)
         configuration = load_migration_config(config)
         known_ids = {stable_activity_id(value) for value in fingerprints}
@@ -505,22 +512,45 @@ class MigrationAudit:
                     "Timezone override conflicts with authoritative source timezone for "
                     + stable_activity_id(stable_id)
                 )
+        if progress:
+            progress(AuditProgress(AuditPhase.PROCESSING_ACTIVITIES, total=len(paths)))
+        rows: list[dict[str, Any]] = []
+        fit_valid = 0
+        warning_count = 0
+        failed = 0
+        skipped_existing = 0
         with ProcessPoolExecutor(
             max_workers=max(1, min(8, len(paths), os.cpu_count() or 2))
         ) as executor:
-            rows = list(
-                executor.map(
-                    _process_one,
-                    paths,
-                    repeat(source),
-                    repeat(fit_directory),
-                    repeat(overwrite),
-                    repeat(self.importer),
-                    repeat(self.validator),
-                    fingerprints,
-                    override_values,
-                )
+            results = executor.map(
+                _process_one,
+                paths,
+                repeat(source),
+                repeat(fit_directory),
+                repeat(overwrite),
+                repeat(self.importer),
+                repeat(self.validator),
+                fingerprints,
+                override_values,
             )
+            for completed, row in enumerate(results, 1):
+                rows.append(row)
+                fit_valid += bool(row.get("fit_valid"))
+                warning_count += len(row["warnings"])
+                failed += row["status"] == "failed"
+                skipped_existing += row["status"] == "skipped_existing"
+                if progress:
+                    progress(
+                        AuditProgress(
+                            AuditPhase.PROCESSING_ACTIVITIES,
+                            completed=completed,
+                            total=len(paths),
+                            fit_valid=fit_valid,
+                            warnings=warning_count,
+                            failed=failed,
+                            skipped_existing=skipped_existing,
+                        )
+                    )
         duplicate_candidates = _duplicates(rows)
         for row in rows:
             row["migration_status"] = classify(row).value
@@ -599,8 +629,22 @@ class MigrationAudit:
             "duplicate_candidates": duplicate_candidates,
             "activities": rows,
         }
+        final_progress = {
+            "completed": len(rows),
+            "total": len(paths),
+            "fit_valid": fit_valid,
+            "warnings": sum(warnings.values()),
+            "failed": failed,
+            "skipped_existing": skipped_existing,
+        }
+        if progress:
+            progress(AuditProgress(AuditPhase.GENERATING_REPORTS, **final_progress))
         self._write_reports(output, report)
+        if progress:
+            progress(AuditProgress(AuditPhase.WRITING_MANIFEST, **final_progress))
         self._write_manifest(output, source, rows, migration_statuses)
+        if progress:
+            progress(AuditProgress(AuditPhase.COMPLETE, **final_progress))
         return report
 
     @staticmethod

@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.live import Live
 
 from config.loader import load_config
+from core.audit_progress import AuditProgressRenderer
 from core.errors import PolarToStravaError
 from core.logging import configure_logging
 from polar import PolarImporter
@@ -185,20 +186,17 @@ def audit(
     """Convert workouts to FIT and write a complete migration audit."""
     if output.exists() and not output.is_dir():
         raise typer.BadParameter("Audit output must be a directory.")
+    progress = AuditProgressRenderer(console, output)
     try:
-        report = MigrationAudit(PolarImporter(), ActivityValidator()).run(
-            input, output, overwrite, config
-        )
+        with progress:
+            report = MigrationAudit(PolarImporter(), ActivityValidator()).run(
+                input, output, overwrite, config, progress.update
+            )
     except PolarToStravaError as error:
         console.print(f"[red]Error:[/red] {error}")
         raise typer.Exit(code=1) from error
     summary = report["summary"]
-    console.print(
-        f"Discovered {summary['discovered']}; parsed {summary['parsed']}; "
-        f"converted {summary['converted']}; validated {summary['validated']}; "
-        f"skipped {summary['skipped_existing']}; failed {summary['failed']}."
-    )
-    console.print(f"Migration workspace: {output}")
+    progress.print_summary(report)
     if summary["failed"]:
         raise typer.Exit(code=1)
 

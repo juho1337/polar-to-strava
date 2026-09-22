@@ -14,6 +14,7 @@ from polar import PolarImporter
 from services.audit import MigrationAudit
 from services.conversion import output_name
 from services.migration import source_sha256, stable_activity_id
+from services.service_models import AuditPhase, AuditProgress
 from services.validation import ActivityValidator
 
 SAMPLE = Path(__file__).parent / "samples" / "training-session-sanitized.json"
@@ -48,8 +49,9 @@ def test_audit_accounts_for_every_source_and_reruns(tmp_path: Path) -> None:
     (source / "activity-2025-01-01.json").write_text("{}", encoding="utf-8")
     output = tmp_path / "audit"
     audit = MigrationAudit(PolarImporter(), ActivityValidator())
+    events: list[AuditProgress] = []
 
-    report = audit.run(source, output)
+    report = audit.run(source, output, progress=events.append)
     summary = report["summary"]
     assert summary["discovered"] == 3
     assert summary["parsed"] == 2
@@ -78,12 +80,40 @@ def test_audit_accounts_for_every_source_and_reruns(tmp_path: Path) -> None:
     assert "trackpoints" not in json.dumps(eligible)
     assert (output / "migration-manifest.csv").exists()
     assert (output / "migration-config.template.json").exists()
+    assert events[0].phase is AuditPhase.DISCOVERY_STARTED
+    assert events[-1].phase is AuditPhase.COMPLETE
+    assert events[-1].completed == events[-1].total == 3
+    assert events[-1].fit_valid == 2
+    assert events[-1].failed == 1
+    assert [event.phase for event in events if event.phase is AuditPhase.GENERATING_REPORTS]
+    assert [event.phase for event in events if event.phase is AuditPhase.WRITING_MANIFEST]
 
     rerun = audit.run(source, output)
     assert rerun["summary"]["skipped_existing"] == 2
     assert rerun["summary"]["validated"] == 2
     overwritten = audit.run(source, output, overwrite=True)
     assert overwritten["summary"]["converted"] == 2
+
+
+def test_progress_callback_does_not_change_manifest(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    shutil.copyfile(SAMPLE, source / SAMPLE.name)
+    events: list[AuditProgress] = []
+
+    MigrationAudit(PolarImporter(), ActivityValidator()).run(
+        source, tmp_path / "with-progress", progress=events.append
+    )
+    MigrationAudit(PolarImporter(), ActivityValidator()).run(source, tmp_path / "without-progress")
+
+    with_progress = json.loads(
+        (tmp_path / "with-progress" / "migration-manifest.json").read_text(encoding="utf-8")
+    )
+    without_progress = json.loads(
+        (tmp_path / "without-progress" / "migration-manifest.json").read_text(encoding="utf-8")
+    )
+    assert with_progress == without_progress
+    assert events[-1].phase is AuditPhase.COMPLETE
 
 
 def test_audit_reports_source_to_domain_loss_as_warning(tmp_path: Path) -> None:
