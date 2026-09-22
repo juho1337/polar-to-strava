@@ -1,7 +1,12 @@
 """Application service layer."""
 
 from services.conversion import ConversionService
-from services.service_models import ConversionResult
+from services.service_models import (
+    AuditPhase,
+    AuditProgress,
+    AuditProgressCallback,
+    ConversionResult,
+)
 from services.validation import (
     ActivityValidator,
     ValidationIssue,
@@ -12,6 +17,9 @@ from services.validation import (
 
 __all__ = [
     "ActivityValidator",
+    "AuditPhase",
+    "AuditProgress",
+    "AuditProgressCallback",
     "ConversionResult",
     "ConversionService",
     "ValidationIssue",
