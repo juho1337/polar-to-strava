@@ -335,6 +335,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## License
 
-No software license has been selected yet. Until a `LICENSE` file is added, normal
-copyright restrictions apply; the repository should not yet be described as fully open
-source. A project owner must choose and add the license.
+Polar Activity Migrator is licensed under the
+[GNU General Public License version 3](LICENSE). You may use, modify, and redistribute
+the project under the terms of GPLv3.

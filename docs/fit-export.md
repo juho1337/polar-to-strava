@@ -9,8 +9,8 @@ summaries.
 FIT output uses `fit-tool==0.9.16`. Its installed package metadata declares
 Python 3.12 support and BSD-3-Clause licensing. The package writes a FIT
 header and CRC and can decode and validate its output. This states package
-facts only; it is not a legal conclusion about the FIT protocol. This
-repository currently has no declared project license.
+facts only; it is not a legal conclusion about the FIT protocol. Polar Activity
+Migrator is licensed under GPLv3; see the repository `LICENSE` file.
 
 The exporter writes `file_id` (manufacturer `development`, a local product
 identifier and a deterministic identifier derived from the activity ID), timer

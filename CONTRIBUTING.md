@@ -26,6 +26,6 @@ real credentials.
 
 ## Licensing status
 
-The project does not yet contain a software license. Contributions should wait for or
-explicitly account for the project owner's eventual license decision; opening a pull
-request does not itself establish a license grant.
+The project is licensed under the GNU General Public License version 3. By submitting a
+contribution, you agree that it is provided under the project's GPLv3 license. The project
+does not require a contributor license agreement or copyright assignment.
