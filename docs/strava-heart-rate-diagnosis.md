@@ -1,47 +1,31 @@
-# Manual Strava heart-rate graph investigation
+# TCX heart-rate compatibility finding
 
-The real Padel training session was accepted by Strava after TCX upload.
-Strava displayed the lap average and maximum heart rate, but the manual
-upload did not display an HR graph. The local file
-`C:\temp\polar-test.tcx` was inspected directly.
+During TCX acceptance testing, Strava displayed lap average and maximum heart rate but
+did not display the trackpoint heart-rate graph. Direct inspection confirmed that every
+source sample was present in the generated TCX with the expected UTC timestamp and value.
 
 | Measurement | Polar sample stream | Written TCX |
-| --- | ---: | ---: |
-| Samples / trackpoints | 1,951 | 1,951 |
-| Timestamped points | 1,951 | 1,951 |
-| HR values at trackpoint level | 1,951 | 1,951 |
-| Minimum HR | 78 bpm | 78 bpm |
-| Arithmetic average HR | 125.13429010763711 bpm | 125.13429010763711 bpm |
-| Maximum HR | 140 bpm | 140 bpm |
-| Intervals | 1,950 × 1 second | 1,950 × 1 second |
+| --- | --- | --- |
+| Samples / trackpoints | All source samples | Same count |
+| Timestamped points | All source timestamps | Same instants in UTC |
+| HR values at trackpoint level | Present | Present |
 | Unique, increasing timestamps | Yes | Yes |
-| First sample | 21:04:22.645+03:00, 79 bpm | 18:04:22.645Z, 79 bpm |
-| Last sample | 21:36:52.645+03:00, 127 bpm | 18:36:52.645Z, 127 bpm |
 
-The samples span 1,950 seconds of Polar's 1,952.224-second recorded
-duration. They fall within the exercise and session boundaries. The first
-source `dateTime` is a local timestamp; the `timezoneOffset` of 180 minutes
-is applied to form an absolute UTC instant. In the domain, the first point
-is `2025-05-05T21:04:22.645000+03:00` with `HeartRate(bpm=79)`. The
-serialized point is:
+A source `dateTime` with a valid Polar `timezoneOffset` becomes an absolute UTC instant.
+A serialized point has this shape:
 
 ```xml
 <Trackpoint xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
-  <Time>2025-05-05T18:04:22.645000Z</Time>
-  <HeartRateBpm><Value>79</Value></HeartRateBpm>
+  <Time>2025-01-01T10:00:00Z</Time>
+  <HeartRateBpm><Value>120</Value></HeartRateBpm>
 </Trackpoint>
 ```
 
-`Trackpoint`, `Time`, `HeartRateBpm`, and `Value` are all in the Garmin
-Training Center Database v2 namespace. Heart rate is present per
-trackpoint and in lap summaries. The TCX passes the bundled Garmin
-Training Center v2 XSD. A new semantic validator also compares the
-serialized trackpoint HR timestamps and values with the source domain
-activity before returning the TCX bytes.
+`Trackpoint`, `Time`, `HeartRateBpm`, and `Value` are all in the Garmin Training Center
+Database v2 namespace. Heart rate is present per trackpoint and in lap summaries. TCX
+passes the bundled Garmin Training Center v2 XSD, and semantic validation compares the
+serialized trackpoint timestamps and heart-rate values with the domain activity.
 
-**Current conclusion:** the local Polar importer and TCX serializer did not
-lose or misplace the HR stream. The cause of Strava's missing graph is not
-established by the available files. A same-workout `Export Original` file
-from the Polar-synced Strava activity, or evidence of the uploaded activity's
-processed stream, is needed to distinguish a Strava import rule from a
-display issue. We should not fabricate GPS or distance data to probe this.
+The local importer and TCX serializer did not lose or misplace the stream. FIT was adopted
+as the preferred Strava migration format after FIT acceptance testing preserved the
+continuous heart-rate graph. TCX remains a supported conversion format.

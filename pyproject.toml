@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "polar-to-strava"
 version = "0.1.0"
-description = "Convert Polar Flow JSON exports to Garmin TCX."
+description = "Migrate Polar Flow training exports to Strava with FIT or TCX."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["fit-tool==0.9.16", "httpx>=0.27,<1", "lxml>=5.2,<7", "pydantic>=2.7,<3", "PyYAML>=6.0,<7", "rich>=13.7,<14", "typer>=0.12,<1"]

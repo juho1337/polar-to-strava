@@ -11,22 +11,26 @@ The implementation follows Strava's official [authentication](https://developers
 and [rate limit](https://developers.strava.com/docs/rate-limits/) documentation. Uploading
 requires only `activity:write`. FIT is sent as multipart form data to `POST /api/v3/uploads`.
 The returned upload ID is persisted and polled through `GET /api/v3/uploads/{id}` no more
-often than once per second. Limits and usage come from `X-RateLimit-Limit` and
-`X-RateLimit-Usage`; the uploader does not assume an account's configured quota.
+often than once per second. Limits and usage come from `X-RateLimit-Limit`,
+`X-RateLimit-Usage`, `X-ReadRateLimit-Limit`, and `X-ReadRateLimit-Usage`; the uploader
+does not assume an account's configured quota.
 
 ## Credentials and authorization
 
-Register a Strava API application and set credentials in the local environment:
+Follow the [Strava setup guide](strava-setup.md) to register a Strava API application,
+configure `localhost` as its callback domain, and set credentials in the local environment:
 
 ```powershell
-$env:STRAVA_CLIENT_ID = "..."
-$env:STRAVA_CLIENT_SECRET = "..."
-python main.py strava auth C:\MigrationWorkspace --redirect-uri http://localhost
+$env:STRAVA_CLIENT_ID = "YOUR_CLIENT_ID"
+$env:STRAVA_CLIENT_SECRET = "YOUR_CLIENT_SECRET"
+python main.py strava auth "<workspace>" --redirect-uri http://localhost
 ```
 
-Open the displayed Strava URL, authorize the requested `activity:write` scope, and enter
-the returned one-time code at the hidden prompt. Short-lived access tokens, the latest
-rotating refresh token, expiry, and scope are stored in
+Open the displayed Strava URL and authorize the requested `activity:write` scope. The CLI
+does not run a callback server, so a localhost connection error is expected. Copy only
+the returned `code` query value into the hidden prompt, then enter the returned `scope`
+query value. Short-lived access tokens, the latest rotating refresh token, expiry, and
+scope are stored in
 `.strava-tokens.json` inside the workspace. The file is gitignored. Tokens and secrets
 are never printed or stored in manifests, audit reports, or SQLite error messages.
 
@@ -83,7 +87,7 @@ manual review.
 Local failure state can be reset explicitly:
 
 ```powershell
-python main.py strava reset C:\MigrationWorkspace --activity-id sha256:...
+python main.py strava reset "<workspace>" --activity-id sha256:...
 ```
 
 Completed or duplicate state requires `--force`. Reset changes local state only and never

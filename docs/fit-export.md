@@ -1,10 +1,10 @@
-# Experimental FIT export (Sprint 7.3)
+# FIT export
 
-PolarToStrava supports TCX and FIT. TCX remains the default. Use `--format fit`
-with a `.fit` output path to create an experimental FIT activity for manual
-Strava upload. FIT was added because Strava accepted our valid TCX with all
-1,951 heart-rate points but did not display its heart-rate graph. **A generated
-FIT has not yet been manually accepted and checked in Strava.**
+Polar Activity Migrator supports TCX and FIT. TCX remains the `convert` command's
+default, while the migration audit and Strava uploader use FIT. Use `--format fit`
+with a `.fit` output path for individual conversion. FIT is preferred for migration
+because real Strava acceptance testing preserved continuous heart-rate data and activity
+summaries.
 
 FIT output uses `fit-tool==0.9.16`. Its installed package metadata declares
 Python 3.12 support and BSD-3-Clause licensing. The package writes a FIT
@@ -53,8 +53,6 @@ Activity and session timer duration use recorded duration when supplied.
 The FIT exporter requires at least one lap and one trackpoint.
 
 The exporter decodes its bytes with CRC verification and checks FIT conformance,
-message counts, record timestamps, heart rate and sensor values, and session
-summaries before writing. This local validation does not predict Strava's
-display behavior. The manual acceptance step is to upload the generated FIT
-in Strava and compare its heart-rate graph and summary with the Polar-synced
-original activity.
+message counts, record timestamps, heart rate and sensor values, and session summaries
+before writing. Local validation cannot predict every Strava display or sport mapping
+decision, so verify a small uploaded batch before starting a full migration.

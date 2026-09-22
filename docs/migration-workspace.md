@@ -55,8 +55,13 @@ files contain personal activity data. Existing FITs are validated on rerun; use
 
 ## Uploader boundary
 
-A future uploader will consume the manifest, eligible FIT files, and their hashes. It
-will not parse Polar JSON, infer timezones, merge streams, reconstruct laps, select
-altitude sources, or decide compatibility rules. Those decisions are finalized before
-the manifest boundary. Polar exports can contain additional shapes that still require a
-new compatibility rule or an explicit exclusion.
+The Strava uploader consumes the manifest, eligible FIT files, and their hashes. It does
+not parse Polar JSON, infer timezones, merge streams, reconstruct laps, select altitude
+sources, or decide compatibility rules. Those decisions are finalized before the
+manifest boundary. Polar exports can contain additional shapes that still require a new
+compatibility rule or an explicit exclusion.
+
+After authorization, the uploader adds `.strava-tokens.json` and
+`migration-state.sqlite3` to the workspace. The token file contains authentication
+secrets. The SQLite database records durable upload outcomes and known Strava upload IDs.
+Keep both private, and do not delete the database during an active migration.
