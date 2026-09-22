@@ -132,6 +132,7 @@ class StravaClient:
                 data={"client_id": self.client_id, "client_secret": self.client_secret, **fields},
             )
             response.raise_for_status()
+            self._capture_rate_limit(response)
             api_response = StravaTokenResponse.model_validate(response.json())
             tokens = api_response.token_set(fallback_scope)
         except (httpx.HTTPError, ValueError, ValidationError) as error:
@@ -172,7 +173,7 @@ class StravaClient:
         return self._upload_response(response, expected=200)
 
     def _upload_response(self, response: httpx.Response, expected: int) -> UploadStatus:
-        self.rate_limit = parse_rate_limit(response.headers)
+        self._capture_rate_limit(response)
         if response.status_code == 429:
             raise StravaAPIError(
                 "rate_limit", "Strava rate limit exhausted", retryable=True, status_code=429
@@ -202,6 +203,11 @@ class StravaClient:
         if self.rate_limit is not None and self.rate_limit.exhausted:
             raise StravaAPIError("rate_limit", "Strava rate limit budget is exhausted")
 
+    def _capture_rate_limit(self, response: httpx.Response) -> None:
+        parsed = parse_rate_limit(response.headers)
+        if parsed is not None:
+            self.rate_limit = parsed
+
 
 def parse_rate_limit(headers: httpx.Headers) -> RateLimit | None:
     try:
@@ -209,11 +215,25 @@ def parse_rate_limit(headers: httpx.Headers) -> RateLimit | None:
         usage = [int(value) for value in headers["X-RateLimit-Usage"].split(",")]
         if len(limits) != 2 or len(usage) != 2:
             return None
+        read_limits = _header_pair(headers, "X-ReadRateLimit-Limit")
+        read_usage = _header_pair(headers, "X-ReadRateLimit-Usage")
         return RateLimit(
             short_limit=limits[0],
             daily_limit=limits[1],
             short_usage=usage[0],
             daily_usage=usage[1],
+            read_short_limit=read_limits[0] if read_limits else None,
+            read_daily_limit=read_limits[1] if read_limits else None,
+            read_short_usage=read_usage[0] if read_usage else None,
+            read_daily_usage=read_usage[1] if read_usage else None,
         )
+    except (KeyError, ValueError):
+        return None
+
+
+def _header_pair(headers: httpx.Headers, name: str) -> tuple[int, int] | None:
+    try:
+        values = tuple(int(value) for value in headers[name].split(","))
+        return values if len(values) == 2 else None
     except (KeyError, ValueError):
         return None

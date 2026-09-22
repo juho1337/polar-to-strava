@@ -1,11 +1,13 @@
 """Command line interface."""
 
+import time
 from datetime import date
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.live import Live
 
 from config.loader import load_config
 from core.errors import PolarToStravaError
@@ -14,7 +16,9 @@ from polar import PolarImporter
 from services import ActivityValidator, ConversionService
 from services.audit import MigrationAudit
 from strava.client import StravaClient, TokenStore, authorization_url, credentials
-from strava.models import MigrationManifest
+from strava.models import ManifestActivity, MigrationManifest
+from strava.progress import print_status, progress_table, snapshot
+from strava.rate_limit import RateLimitPolicy, RateWait
 from strava.state import UploadStateStore
 from strava.uploader import Uploader
 
@@ -55,6 +59,8 @@ def strava_upload(
     all_activities: Annotated[bool, typer.Option("--all")] = False,
     from_date: Annotated[str | None, typer.Option("--from")] = None,
     to_date: Annotated[str | None, typer.Option("--to")] = None,
+    max_in_flight: Annotated[int, typer.Option("--max-in-flight", min=1, max=10)] = 3,
+    rate_limit_reserve: Annotated[int, typer.Option("--rate-limit-reserve", min=0)] = 10,
 ) -> None:
     """Upload eligible manifest activities with persistent resume state."""
     if sum((limit is not None, activity_id is not None, all_activities)) != 1:
@@ -79,20 +85,64 @@ def strava_upload(
                 from_date=parsed_from,
                 to_date=parsed_to,
             )
+            initial = snapshot(uploader.manifest, store.summary())
             console.print(
-                f"Manifest {len(uploader.manifest.activities)}; eligible "
-                f"{sum(item.eligible for item in uploader.manifest.activities)}; selected {len(selected)}."
+                f"Manifest {len(uploader.manifest.activities)}; eligible {initial.eligible}; "
+                f"selected {len(selected)}."
             )
-            for index, item in enumerate(selected, 1):
-                assert item.time.resolved_utc_start is not None
-                console.print(
-                    f"[{index}/{len(selected)}] {item.time.resolved_utc_start.date()} "
-                    f"{item.sport.domain} {'would_upload' if dry_run else 'uploading'}"
+            if dry_run:
+                for index, item in enumerate(selected, 1):
+                    assert item.time.resolved_utc_start is not None
+                    console.print(
+                        f"[{index}/{len(selected)}] {item.time.resolved_utc_start.date()} "
+                        f"{item.sport.domain} would_upload"
+                    )
+            else:
+                live: Live | None = None
+
+                def rate_wait(wait: RateWait) -> None:
+                    console.print(
+                        f"API safety reserve reached; waiting until {wait.resume_at.isoformat()}."
+                    )
+
+                def update(activity: ManifestActivity | None, event: str) -> None:
+                    current = None
+                    if activity is not None:
+                        current = f"{activity.sport.domain} - {event}"
+                    current_progress = snapshot(uploader.manifest, store.summary())
+                    if live is not None:
+                        live.update(
+                            progress_table(
+                                current_progress,
+                                run_done=current_progress.resolved - initial.resolved,
+                                run_total=len(selected),
+                                rate=client.rate_limit if client else None,
+                                current=current,
+                            )
+                        )
+
+                policy = RateLimitPolicy(
+                    reserve=rate_limit_reserve, sleep=time.sleep, on_wait=rate_wait
                 )
-                if not dry_run:
-                    uploader.run([item])
-            summary = store.summary()
-            console.print("; ".join(f"{key}={value}" for key, value in summary.items()))
+                uploader.max_in_flight = max_in_flight
+                uploader.rate_policy = policy
+                uploader.on_progress = update
+                if console.is_terminal:
+                    live = Live(
+                        progress_table(initial, run_done=0, run_total=len(selected)),
+                        console=console,
+                        refresh_per_second=4,
+                    )
+                    with live:
+                        uploader.run(selected)
+                else:
+                    uploader.run(selected)
+                final = snapshot(uploader.manifest, store.summary())
+                if not console.is_terminal:
+                    print_status(console, final, details=True)
+                if uploader.last_stop_reason:
+                    console.print(f"Migration paused safely: {uploader.last_stop_reason}")
+                    console.print(f'Resume with: python main.py strava upload "{workspace}" --all')
     except PolarToStravaError as error:
         console.print(f"[red]Error:[/red] {error}")
         raise typer.Exit(code=1) from error
@@ -101,15 +151,14 @@ def strava_upload(
 @strava_app.command("status")
 def strava_status(
     workspace: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    details: Annotated[bool, typer.Option("--details")] = False,
 ) -> None:
     """Show local upload state without accessing Strava."""
     manifest, fingerprint = MigrationManifest.load(workspace)
     with _state_store(workspace) as store:
         store.reconcile(manifest, fingerprint)
-        summary = store.summary()
-    console.print(f"Eligible total: {sum(item.eligible for item in manifest.activities)}")
-    for key, value in summary.items():
-        console.print(f"{key}: {value}")
+        current = snapshot(manifest, store.summary())
+    print_status(console, current, details)
 
 
 @strava_app.command("reset")

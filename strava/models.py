@@ -137,6 +137,10 @@ class RateLimit(BaseModel):
     daily_limit: int
     short_usage: int
     daily_usage: int
+    read_short_limit: int | None = None
+    read_daily_limit: int | None = None
+    read_short_usage: int | None = None
+    read_daily_usage: int | None = None
 
     @property
     def exhausted(self) -> bool:
