@@ -1,17 +1,19 @@
 # SPEC-001: Strava Uploader Recovery & Idempotency
 
-Status: Draft
+Status: Reviewed
 Created: 2026-09-27
-Approval: Pending human review; no behavioral decisions approved by this draft
+Reviewed: 2026-09-27 (Sprint 10.3B human decisions and consistency review)
+Human decisions: Incorporated from Sprint 10.3B (2026-09-27)
+Approval: Pending explicit human approval of this revised specification
 Implementation plan: Not created; requires approval first
 Supersedes: None
 Investigation baseline: `1499448edfd42a32eb166c05306c607b9d6bf1b0`
 
-This is an investigation and proposed behavioral contract under the
+This is an investigation and human-reviewed behavioral contract under the
 [SDD workflow](README.md). **CURRENT** describes the baseline implementation;
-**PROPOSED** describes a target for review, not implemented behavior. Open questions
-must be resolved before approval. Completion of this document does not mean that
-SPEC-001 is Implemented or Verified.
+**REVIEWED TARGET** describes the selected future behavior, not implemented behavior.
+Explicit approval is still required. This document does not claim SPEC-001 is
+Approved, Implemented or Verified.
 
 ## Problem
 
@@ -232,438 +234,588 @@ message despite these distinctions. These are observable gaps, not new CLI behav
 
 ## Intended behavior
 
-**PROPOSED central invariant:** Never create a new Strava upload while there is
-evidence that an upload may already exist for that migration activity.
+**REVIEWED TARGET**, selected by the human decisions in Sprint 10.3B. This is future
+behavior awaiting explicit approval and implementation; CURRENT findings above are
+unchanged.
 
-Evidence includes a known upload ID, uncertain POST, unfinished submission intent,
-processing upload, completed activity and authoritative duplicate. A polling failure
-is not submission failure. A network failure after POST begins is not proof that
-POST failed. Retry permission must depend on evidence and phase, not a generic
-retryable label. Evidence of an authoritatively failed attempt must explicitly
-resolve its uncertainty before any new submission is permitted (Q1/Q2).
+**Central invariant:** Never create a new Strava upload while there is evidence that
+an upload may already exist for that migration activity.
 
-The target is duplicate-resistant automatic behavior and safe resume within an
-intact workspace under one uploader process. It is not exactly-once delivery,
-guaranteed remote completion, cross-workspace deduplication or crash-proof storage.
-Remote duplicate detection is a final service response, not permission to retry.
+**Positive submission rule:** A new upload may be created only when durable evidence
+positively establishes that submission is permitted. A retry requires positive
+evidence that the failed attempt did not and could not create a remote upload, and
+that no older unresolved submission attempt exists. A genuinely fresh activity can
+be a safe candidate under the intact-state assumptions below. Eligibility, artifact
+integrity and rate controls must also pass before any actual POST.
 
-| Situation | CURRENT | PROPOSED |
+No evidence of success is not evidence of non-submission. Missing IDs, retryable
+labels, timeout/connection loss, HTTP 5xx, malformed success, interrupted submission
+or failure to observe an upload never grant retry permission. A rejection such as
+429/4xx alone does not prove absence of side effects. Unless request-phase and API
+evidence positively prove non-submission, record review-only uncertainty. The
+examined API contract does not establish a blanket status-code retry allowlist;
+SPEC-001 grants none. Proven local/pre-transmission failures can be corrected and
+retried without overriding an older unresolved attempt.
+
+Submission creates an upload with POST. Observation uses GET on a known upload ID.
+Failed observation may lead to another GET or review, never a new POST. Authoritative
+processing failure is review-only and retains the failed ID. Uncertain no-ID
+submission remains blocked; SPEC-001 adds no remote search, reconciliation endpoint,
+scope or heuristic, and no force-resend feature.
+
+The contract is duplicate-resistant automatic behavior and safe resume in an intact
+workspace used by one uploader process. It does not promise exactly-once delivery,
+completion, cross-workspace deduplication or recovery of lost/corrupt history.
+
+| Situation | CURRENT | REVIEWED TARGET |
 | --- | --- | --- |
-| Retryable poll failure with ID | Next run can POST | Retain ID and resume observation only |
-| Stranded uploading | Ignored until reset | Explain ambiguity; block POST unless non-submission is proven |
-| Malformed successful POST / missing ID | Permanent failure or uncaught error | Preserve possible acceptance; review/reconciliation, no blind POST |
-| POST 5xx | Automatic bounded resend | Do not infer safe resend from status code alone; resolve Q1 |
-| Known ID and missing/changed local FIT | Selection blocks observation too | Block new submission; observation policy requires Q4 |
-| Reset of uncertain/known-ID failure | Clears remote evidence | Preserve evidence; define explicit safe recovery actions under Q3 |
-| Completed/duplicate | Not selected, but reconciliation/reset can overwrite evidence | Preserve resolved evidence across recovery and report local issues separately |
+| Poll failure with ID | Retryable label can lead to POST | Preserve ID; retry observation or review |
+| Stranded uploading | Ignored until reset | Ambiguous; review without POST unless stronger positive evidence exists |
+| Malformed POST success / missing ID | Permanent failure or uncaught error | Preserve evidence; observe a trustworthy known ID or review; no POST |
+| POST 5xx | Bounded repeated POST | Review; code alone does not prove safe retry |
+| Known ID plus local FIT/manifest problem | Selection can block GET | GET remains possible; local blocker independently blocks POST |
+| Reset | Clears remote IDs | Recover safest valid action; retain evidence; no force-resend |
+| Completed/duplicate plus local change | Reconciliation replaces status label | Preserve remote resolution and separately visible local blocker |
 
 ## Scope
 
-Submission safety, observation/polling recovery, restart/resume, durable per-activity
-upload evidence, retry classification, uncertainty, duplicate-safe automatic behavior,
-reset safety, legacy-state compatibility and user-visible recovery status.
+Submission safety, observation recovery, restart/resume, durable per-activity evidence,
+retry classification, uncertainty, duplicate-safe automatic behavior, reset safety,
+versioned state upgrade, legacy compatibility and user-visible recovery actions.
 
 ## Non-goals
 
-Polar parsing, domain redesign, FIT/TCX generation, audit eligibility, manifest
-schema or stable identity redesign, duplicate source-byte identity repair, lap
-boundaries, OAuth redesign, token encryption/storage redesign, workspace locking,
-GUI, CI, dependency cleanup, general performance work, rate-limit redesign and
-Strava API expansion. Reconciliation research may identify future work; it does not
-authorize new API calls/scopes in this draft. No remote deletion is proposed.
+Polar parsing, domain redesign, FIT/TCX generation, audit eligibility, manifest or
+stable identity redesign, duplicate source-byte identity repair, lap boundaries,
+OAuth redesign, token encryption/storage redesign, workspace locking, GUI, CI,
+dependency cleanup, general performance work, rate-limit redesign and API expansion.
+Remote activity search, automatic uncertain-upload reconciliation, force resend and
+exactly-once guarantees are explicitly excluded. No remote deletion is introduced.
 
 ## Terminology
 
-| Concept | Meaning; not a required enum or schema name |
+| Concept | Meaning; not a prescribed enum or database column |
 | --- | --- |
-| Submission | POST that creates a remote upload, distinct from its eventual activity |
-| Observation | GET of a known upload ID; retry does not create another upload |
-| Definitely not submitted | Evidence shows the upload POST never occurred and no prior unresolved attempt exists |
-| Submission confirmed | Authoritative upload ID known; remote processing may still be pending or fail |
-| Submission uncertain | POST may have been accepted, but usable authoritative outcome is absent |
-| Authoritatively failed | Reliable evidence establishes an unsuccessful attempt; exact evidence allowing another POST is Q1/Q2 |
-| Resolved | Authoritative completed activity or duplicate, not merely a local suspicion |
-| Recovery evidence | IDs, submission/observation phase, outcomes and history needed to prevent unsafe retries |
+| Submission | POST creating a remote upload, distinct from the eventual activity |
+| Observation | GET of a known upload; retry does not create a new upload |
+| Safe submission candidate | Durable evidence permits a new attempt, subject to eligibility, integrity, rate and blocker checks |
+| Submission intent | Durable barrier before a potentially side-effecting POST; after interruption it is not proof that POST happened or did not happen |
+| Confirmed submission | A trustworthy upload ID is known; observation may be pending, failed or terminal |
+| Uncertain submission | Acceptance may have occurred without an authoritative usable result; review-only unless a trustworthy known ID permits observation |
+| Authoritative processing failure | A known remote upload failed processing; retain its evidence and require review, never automatically POST again |
+| Resolved | Authoritative completion or duplicate; not local suspicion or an inferred match |
+| Recovery evidence | IDs, attempt safety/phase, outcomes and history required to prevent unsafe resubmission |
+| Review-only | No automatic submission permission; repair can restore a permitted observation, but acknowledgment cannot erase uncertainty |
 
 ## Architecture impact
 
-The existing manifest-to-uploader boundary remains. No Polar parsing, generation or
-eligibility moves into upload recovery. The uploader decides recovery actions; the
-HTTP client reports phase-aware observations; the state store persists evidence;
-CLI/progress explain actions without deciding migration semantics. These are roles,
-not prescribed new classes or interfaces. Rate policy continues to govern both
-submission and observation. Events must remain usable by future UI/API consumers.
+The prepared manifest/FIT boundary remains. The uploader orchestrates recovery; the
+client reports HTTP/response evidence; the state store durably preserves that evidence;
+CLI/progress expose the resulting permitted actions. The reviewed target requires
+a versioned state representation because one status cannot safely express all three
+dimensions below. It does not prescribe columns, SQL, classes or exception types.
 
-Architecture review for approval must resolve persistence/legacy compatibility,
-reset evidence, failure semantics and any contract changes between these components.
-The existing integrity/privacy invariants apply. This investigation is not approval
-of a state schema, API expansion or new dependency.
+Architecture consistency review confirms:
+
+- Polar parsing and FIT generation stay outside the uploader.
+- Audit/workspace owns source interpretation and migration eligibility; the Strava
+  client does not redefine them. Observing old IDs does not make entries eligible.
+- Domain models remain independent of Strava and persistence.
+- Recovery decisions do not depend on CLI text/layout. Progress callbacks remain
+  reusable by future UI/API consumers.
+- Rate controls apply to both operations; source integrity, durable evidence and
+  privacy safeguards remain boundaries of the implementation.
+
+This identifies expected changes within the uploader/client/state/progress boundary,
+not an implementation plan. Current architecture documentation remains descriptive
+of current code until implementation changes it.
 
 ## Data and state impact
 
-CURRENT schema 1 stores one row per stable activity ID, manifest version, FIT hash,
-eligibility/presence, state, upload/activity IDs, attempts/times and latest HTTP/error
-fields; metadata stores schema version and manifest fingerprint. It stores neither
-FIT path/size nor an attempt-by-attempt ledger. SQLite transactions commit updates,
-but the application specifies no custom journal/synchronous policy, cross-system
-transaction, or recovery from database deletion/corruption.
+CURRENT schema 1 stores a single row per stable activity ID with manifest version,
+FIT hash, eligibility/presence, state, upload/activity IDs, attempt counters/times
+and latest HTTP/error fields. It stores no FIT path/size or complete attempt ledger.
+SQLite commits do not make local storage and Strava one atomic transaction.
 
-PROPOSED: persist enough evidence to distinguish safe submission, observation and
-review after restart. Preserve prior remote evidence when recording later errors,
-artifact changes or reset requests. If a required pre-submission write fails, do
-not POST. If saving a response fails, stop affected submission and retain the earlier
-intent barrier; do not reconstruct a clean pending row. No schema is selected yet:
-Q5 must decide whether interpretation changes suffice or versioned migration and
-additional history are required. Source/domain/manifest schemas remain unchanged.
+The REVIEWED TARGET requires a versioned schema migration or equivalent versioned
+upgrade mechanism, preserving three conceptually independent durable dimensions:
+
+| Dimension | Information that must remain distinguishable |
+| --- | --- |
+| Submission safety/evidence | Safe candidate, attempt intent, uncertainty or confirmed submission; relevant earlier attempts and why POST is or is not permitted |
+| Remote observation/outcome | Not started, processing, observation deferred, processing failed, completed or duplicate; known IDs and supporting result evidence |
+| Local blockers/review conditions | Artifact/manifest problems, authorization required, malformed/conflicting state and other review reasons; conditions may coexist with remote outcomes |
+
+For example, confirmed submission plus remote processing plus an artifact-change
+blocker permits GET of the known upload and prohibits POST. A terminal remote result
+does not clear the artifact blocker. No example name mandates an enum or schema field.
+
+Persist intent before a permitted POST, and known IDs before polling. If intent
+persistence fails, do not POST. If response persistence fails, stop affected work;
+the prior intent barrier remains and restart must inspect committed evidence rather
+than assume a fresh attempt. Errors, artifact reconciliation, reset and callbacks
+must not erase stronger prior evidence. A failed/partial upgrade must not leave a
+usable-looking clean pending state or authorize network work from unvalidated state.
+
+Preserve enough history to explain permitted actions; do not invent missing legacy
+history. Unsupported versions fail closed without destructive downgrade or database
+recreation. The existing version-1 reader already rejects a different schema version;
+future upgrade/versioning must retain that protection. Exact version, representation,
+transaction boundaries and migration mechanics belong to the later implementation
+plan. Source/domain/manifest schemas remain unchanged.
 
 ## Detailed behavior
 
-### Proposed recovery routing
+### Recovery routing
 
 ```mermaid
 flowchart TD
-    Start[Selected activity and durable evidence] --> Resolved{Authoritatively resolved?}
-    Resolved -->|yes| Keep[Keep resolved; no POST]
-    Resolved -->|no| Known{Usable upload ID?}
-    Known -->|yes| Observe[Observe existing upload or show review block]
-    Known -->|no| Safe{Non-submission proven?}
-    Safe -->|yes| Validate[Validate eligibility and artifact]
-    Safe -->|no| Review[Preserve uncertainty; human review]
-    Validate --> Intent[Persist submission intent before POST]
-    Intent --> Submit[Submit once for this authorized attempt]
-    Submit -->|ID received and saved| Observe
-    Submit -->|outcome unclear| Review
-    Observe -->|temporary failure or still pending| Observe
-    Observe -->|completed or duplicate| Keep
-    Observe -->|unresolved permanent error| Review
+    Start[Durable evidence for activity] --> Trust{Trustworthy evidence for a safe action?}
+    Trust -->|no| Review[Preserve evidence; review; no POST]
+    Trust -->|yes| Terminal{Authoritative terminal outcome?}
+    Terminal -->|completed or duplicate| Keep[Remain resolved; retain local blockers]
+    Terminal -->|processing failed| Review
+    Terminal -->|none| Known{Known upload ID?}
+    Known -->|yes| Observe[Observe same upload under rate and access controls]
+    Known -->|no| Safe{Durable permission to submit?}
+    Safe -->|no| Review
+    Safe -->|yes| Gate[After waits validate artifact and eligibility]
+    Gate -->|blocked| Review
+    Gate -->|valid| Intent[Commit intent before POST]
+    Intent --> Submit[Perform permitted submission]
+    Submit -->|authoritative completion or duplicate saved| Keep
+    Submit -->|usable ID saved| Observe
+    Submit -->|unclear outcome| Review
+    Observe -->|temporary failure or pending| Observe
+    Observe -->|authoritative completion or duplicate| Keep
+    Observe -->|processing failure or invalid evidence| Review
 ```
 
-The observation self-edge represents bounded work separated by rate waits or later
-runs, not an infinite loop. Artifact/manifest and authorization issues can block
-observation under Q4/Q6; they must never divert a known ID to POST. Resolving a
-review block requires the decisions below, not a hidden edge back to submission.
+GET retries are bounded and rate-controlled; the self-edge includes later runs, not
+an infinite loop. Artifact/eligibility/manifest blockers do not block GET, but access
+failures, unusable/conflicting identity or malformed recovery state may require
+review before a trustworthy GET can be made. Independent valid known-ID evidence
+can still permit observation when other evidence is ambiguous; no branch permits
+POST from uncertainty or known submission.
 
-Proposed resume rules:
+Resume observes processing or deferred observation with a known ID. Observation
+errors preserve that operation identity across restart, including rate stops and
+poll-budget exhaustion. Processing-failed rows remain review-only; retry policy for
+those failures would require a future specification. Completed and duplicate stay
+resolved even if local files change. No-ID uncertainty stays blocked; changed
+authentication, missing search results or elapsed time cannot establish absence.
 
-- Completed/duplicate evidence prevents automatic resubmission. Local metadata
-  changes must not silently remove that protection.
-- Processing or a retryable observation failure with a valid ID resumes GET of
-  that same ID, with bounded polling and the existing rate policy.
-- Known-ID authorization, malformed-response or permanent observation failures
-  retain evidence and explain the review block; fixing access does not authorize POST.
-- Uncertain or legacy uploading without proof of non-submission remains blocked.
-  Restart alone does not turn uncertainty into retry permission.
-- Retryable failures demonstrably before submission may retry after the cause is
-  corrected, eligibility/integrity verified and no older unresolved attempt exists.
-- Local-file-changed and permanent failure do not automatically submit. Missing ID
-  in processing is invalid recovery evidence, not an invitation to create a new upload.
-- Poll failures, budget exhaustion and rate pauses preserve the distinction between
-  observation and submission across process boundaries and across other activities.
+Observation candidates come from durable remote evidence, including entries removed
+from or made ineligible by the manifest. Local FIT validation is not a prerequisite
+for GET. Retained remote terminal evidence must be persisted even for absent entries,
+and local problems remain separately visible. Normal activity/date selectors continue
+to scope work; retained identity/time metadata is used for removed entries. If a date
+filter cannot be evaluated reliably, report that row for explicit-ID or `--all`
+recovery rather than guess. `--limit` limits new submission candidates, not matching
+known-ID observation. These rules preserve current selector concepts while preventing
+the eligibility gate from hiding old uploads. No new API or broad CLI redesign follows.
 
-### Reset and reconciliation proposals
+### Authoritative response evidence
 
-Ordinary reset must not erase uncertainty, known IDs or terminal evidence. A
-definitely-not-submitted failure may be made retryable after correcting its cause.
-Known-ID recovery should restore observation or request review. Uncertain outcomes
-require reconciliation or an explicitly reviewed recovery policy. Completed and
-duplicate remain protected; changed artifacts require integrity/identity review.
-These are safety boundaries, not a chosen CLI design. Whether any deliberate
-override is offered, what evidence it requires and how history is retained are Q3.
-The existing `--force` switch must not silently be treated as sufficient proof.
+A valid remote activity ID in an attributable, internally consistent Strava upload
+response is completion evidence. A trustworthy upload ID must be retained whenever
+obtained, including when other fields are unusable. Never overwrite an already known
+ID with a contradictory ID or equate a missing ID with permission to POST. IDs must
+be valid positive remote identifiers; conflicting `id`/`id_str`, a mismatch with the
+polled upload, malformed required fields or contradictory success/error information
+preserve evidence and route to safe observation/review, not manufactured completion.
+A textual status without authoritative outcome evidence cannot complete an activity.
+
+For a well-formed success response with a valid activity ID and no contradictory
+evidence, completion remains authoritative even if an upload ID is unavailable;
+preserve the activity ID and any separately obtained upload ID. Missing an ID needed
+to correlate a GET response, malformed success, or conflicting evidence instead
+requires review. This distinction avoids both inventing success and discarding a
+valid terminal outcome merely because an observation ID was absent.
+
+The official [upload error example](https://developers.strava.com/docs/uploads/#errors)
+uses human-readable error text naming a file and identifying the duplicated activity;
+no structured duplicate code is documented. The reviewed recognition contract is
+therefore deliberately narrow: an attributable upload response with consistent
+upload identity, no contradictory completion evidence, a processing-error status,
+and a complete error message of the documented form
+`<file name> duplicate of activity <positive activity ID>` may resolve as duplicate.
+Recognize the complete assertion, not the word `duplicate` anywhere in arbitrary
+text. Documented HTML escaping/markup may be normalized as presentation without
+fuzzy matching or inventing missing content. Negations, incomplete messages, unknown
+variants, malformed IDs and conflicting fields go to review. Preserve the duplicate
+evidence and known IDs. This is a conservative application recognition rule based
+on the documented example, not a promised machine-readable Strava error schema.
+Service wording changes may require review instead of automatic resolution.
+
+### Reset behavior
+
+Reset recovers the safest valid local workflow; it does not delete history. The
+existing `--force` must not bypass this contract. No acknowledgment, flag or generic
+force-resend override may authorize a POST that lacks positive safety evidence.
+
+| Evidence category | Allowed reset/recovery result | Evidence and restrictions retained |
+| --- | --- | --- |
+| Proven pre-submission failure, no older unresolved attempt | Safe candidate after correcting cause and rechecking gates | Preserve why non-submission was proven and attempt history |
+| Known ID with processing/deferred observation | Return toward observation; access or evidence issues may still require review | Preserve upload ID and prior evidence; no POST |
+| Known ID with authoritative processing failure | Remain review-only | Preserve failed ID/result; no retry submission |
+| Uncertain submission without ID | Remain blocked/review | Preserve uncertainty; no force-resend or new reconciliation |
+| Uncertain label with trustworthy ID | Permit observation/review using that ID | Preserve any uncertainty about other attempts; no POST |
+| Completed | Remain resolved | Activity/upload IDs and terminal evidence protected |
+| Authoritative duplicate | Remain resolved | Duplicate evidence and known IDs protected |
+| Artifact/manifest blocker | Clear only the corrected local condition; recompute permitted action | Remote evidence is independent; correction alone does not establish submission safety |
+| Malformed/conflicting state or ambiguous legacy history | Remain blocked until evidence is safe to interpret | No guessed history, clean-state recreation or automatic POST |
 
 ## Error and recovery behavior
 
-CURRENT persisted results are literal states. PROPOSED results below are conceptual
-durable classifications, not schema choices. Prior evidence always dominates a new
-failure that would otherwise look safe. "May exist" concerns remote upload/activity
-creation, not merely whether the latest HTTP call returned success.
+The table defines the REVIEWED TARGET. CURRENT literal-state behavior remains in the
+investigation above. Permission applies per activity and across all its attempts;
+older unresolved evidence overrides a safe-looking latest failure. "Observe" always
+means a trustworthy known ID, rate/access controls and bounded work. A local blocker
+may coexist with processing or resolution and is never cleared just by remote success.
 
-| Phase / example | May upload exist? / ID known? | CURRENT result and later behavior | PROPOSED safe action and durable result | User action? |
-| --- | --- | --- | --- | --- |
-| Preflight missing/hash-changed FIT | Not from this attempt; prior ID possible | `local_file_changed`; validation aborts | Block POST, preserve prior evidence and artifact issue | Correct/review artifact; observation Q4 |
-| Invalid FIT metadata/path or unreadable file | Depends on prior evidence; no new ID | Validation/OSError; status may stay prior or `uploading` if file open fails inside client | Record pre-submission failure only when proven; no unsafe fallback | Correct local issue |
-| HTTP OAuth failure before upload POST | No new upload from this attempt; prior ID possible | `ConfigurationError`; `uploading` or prior processing retained | Preserve phase, distinguish auth from upload; retry only allowed action after repair | Repair authorization |
-| Rate policy daily/short reserve before request | No new effect; any prior ID retained | Stop without request / wait; current row unchanged | Keep evidence; stop or wait according to existing policy | Resume after daily reset |
-| Client budget rejection before network | No new effect; prior ID possible | POST path `retryable_failure`; GET path may become `permanent_failure` | Preserve intended operation; never turn observation into submission | Resume under policy |
-| POST HTTP 429 | Response indicates rate rejection; no ID from it; prior attempt may exist | `retryable_failure`, stop; later POST | Stop, preserve evidence; resubmit only if rejection is accepted as sufficient evidence under Q1 | Wait; review if earlier uncertainty |
-| Connect failure before POST transmission | No new upload if provable; normally no new ID | Covered timeout/network errors become `uncertain` | Safe retry only with trustworthy non-submission evidence, otherwise uncertainty | Review when evidence unavailable |
-| Timeout/connection loss during POST | Yes / usually no new ID | `uncertain`; no selection | Durable uncertainty, no automatic POST | Reconcile/review Q6 |
-| Other unhandled transport/protocol error | Yes / possibly no ID | May escape with `uploading` | Conservative uncertainty after possible transmission | Review |
-| POST 401/403 or other rejection | Depends on authoritative rejection and earlier attempts / no new ID | Nonretryable `permanent_failure` | Preserve evidence; no automatic retry without approved rejection classification Q1 | Repair/review |
-| POST HTTP 5xx | Cannot establish absence / no new ID | Bounded repeats, then `retryable_failure` | No automatic resend from 5xx alone; uncertainty unless reliable evidence Q1 | Review unless proven safe |
-| Expected success but malformed body or missing ID | Yes / unusable or missing | `permanent_failure` or uncaught `ValueError` leaving `uploading` | Preserve possible acceptance, no automatic POST | Reconcile/review |
-| Successful POST with ID | Yes / yes | Commit `processing`, then handle result | Commit ID before observation; never repeat POST to recover GET | None for normal observation |
-| GET network failure or 5xx | Yes / yes | `retryable_failure`, ID retained; next run POST | Retain observation-retry evidence; bounded GET now/later, same ID | Normally none beyond later resume |
-| GET HTTP 429 | Yes / yes | `retryable_failure`, stop; next run POST | Preserve observation target, stop under rate policy | Resume later |
-| GET auth, unexpected status, malformed result | Yes / yes | `permanent_failure`, ID retained | Retain ID, block or retry observation under classified cause; never POST | Repair/review; 404 is not proof of non-submission |
-| Processing still pending / poll budget exhausted | Yes / yes | Processing then `retryable_failure` with ID | Defer observation while retaining ID and unresolved outcome | Later resume, bounded per run |
-| Authoritative processing error | Upload exists; activity success failed per response / yes | `permanent_failure`, sanitized error | Preserve failed attempt and ID; any new submission policy Q2 | Review; no blanket retry |
-| Authoritative duplicate result | Existing remote activity / normally upload ID | `duplicate`, ID/error retained; resolved | Resolved, never automatically POST; local suspicion alone insufficient | None for normal resume |
-| Interruption | Depends on exact boundary / maybe | Last commit, or caught submission interrupt sets `uncertain` | Use crash matrix; preserve confirmed/uncertain evidence per activity | Review if ambiguous |
-| Local FIT change after confirmed submission | Yes / yes | Selection can overwrite to `local_file_changed` and block GET | Block POST, retain remote evidence; observation Q4 | Artifact review separate from remote outcome |
-| Malformed persisted state | Cannot safely infer / untrusted | Unsupported version rejected; invalid status can raise; processing without ID can submit; schema lacks transition validation | Fail closed for affected recovery, no automatic destructive repair or POST | Diagnose/reconcile Q5 |
+| Phase / failure | Remote may exist / ID | POST permission | GET permission | Durable classification/blocker | Automatic next action / human action |
+| --- | --- | --- | --- | --- | --- |
+| Preflight missing/hash-changed/invalid FIT, unsafe path or local read error | Not from this attempt; prior remote evidence possible | No until corrected; then only positive safety evidence permits | Yes if trustworthy ID exists, independent of FIT | Artifact blocker plus unchanged remote/evidence dimensions | Block submission; observe existing ID where applicable; human corrects artifact |
+| Configuration/OAuth failure proven before upload POST | No new upload from this attempt; prior ID possible | Only after cause corrected and no older unresolved attempt | After authorization/access repaired, if ID known | Proven pre-submission failure or observation access blocker, preserving prior evidence | Report repair needed; human repairs configuration/access |
+| Policy short-window reserve before request | No new effect; prior ID retained | Defer permitted POST, then fresh validation | Defer permitted GET | Operation and evidence retained | Wait to natural window under policy; no reset needed |
+| Policy daily reserve or client budget rejection before network | No new effect; prior ID retained | Only already-proven permission after budget allows | Permitted later for known ID | Deferred operation; no loss of evidence | Daily stop or policy wait; user resumes at permitted time |
+| POST HTTP 429 / other 4xx rejection | Cannot infer absence from code; usually no new ID | No from code alone | If trustworthy ID retained | Review unless positive phase/API proof establishes non-submission; authorization blocker where relevant | 429 stops scheduling; preserve evidence, request cause-specific review/repair |
+| Connection failure provably before transmission | No new effect if positively established; prior ID possible | Yes after correction only without older unresolved attempt | If known ID, recover by GET instead | Proven non-submission, or uncertainty when proof absent | Retry only permitted operation after gates; review if not provable |
+| POST timeout/loss/transport ambiguity or generic protocol error | Yes; ID may be unavailable | No | Only with independently trustworthy ID | Submission uncertainty plus review condition | No-ID outcome stops for review; no remote search or force resend |
+| POST 5xx | Yes cannot be excluded; usually no ID | No from 5xx or retryable label | If trustworthy ID exists | Uncertainty/review; preserve earlier evidence | Do not repeat POST; human review |
+| POST success malformed / missing usable evidence | Yes; ID absent, invalid or partially usable | No | Only trustworthy retained ID | Preserve obtained IDs and ambiguity; no inferred completion | Observe where safe, otherwise review; valid unambiguous activity-ID completion follows response rules |
+| POST accepted with usable ID | Yes / known | No | Yes | Confirmed submission, remote processing/result | Commit ID, then observe or persist authoritative terminal outcome |
+| GET timeout/network/5xx | Yes / known | No | Yes, bounded retry now or later | Observation deferred, ID retained | Retry observation under rate policy; report deferral if run ends |
+| GET HTTP 429 | Yes / known | No | Later under rate policy | Observation deferred, ID retained | Stop scheduling; user resumes later; never POST |
+| GET 401/403, 404, other permanent access/retrieval error | Yes / known | No | Only when access/evidence allows a meaningful GET | Review/access blocker and remote evidence retained | Explain cause; human repairs/reviews; absence/unavailability proves nothing about POST |
+| GET malformed/conflicting response | Yes / original ID retained | No | Same trustworthy ID may be reobserved; never substitute conflicting ID | Review/deferred observation; preserve conflicting evidence safely | Bounded safe observation or review; no fabricated terminal outcome |
+| Pending processing / poll budget exhausted | Yes / known | No | Yes later, bounded | Processing / observation deferred | Preserve ID and defer to later resume |
+| Authoritative processing failure | Upload exists / known | No | No automatic polling needed for the failed terminal upload | Processing failed and review-only; failed ID retained | Require review; resubmission policy is future work |
+| Authoritative completed activity | Yes / activity ID, upload ID if known | No | No further observation needed | Resolved plus any independent local blocker | Preserve terminal result; no action unless local issue needs review |
+| Conservatively recognized authoritative duplicate | Existing activity / known upload evidence | No | No further observation needed | Resolved duplicate plus any independent local blocker | Preserve evidence; local duplicate suspicion alone cannot resolve |
+| Interruption or persistence failure | Depends on boundary / maybe | Only positive committed safety evidence can permit | If trustworthy ID committed | Last committed evidence, intent/uncertainty or remote outcome | Follow crash matrix; no handler-dependent resend permission |
+| Local artifact/manifest changes after confirmed submission | Yes / known | No | Yes despite missing/changed/ineligible/removed artifact | Remote state plus independent artifact/manifest blocker | Observe and persist terminal evidence; human separately repairs/reviews local issue |
+| Malformed/unknown persisted state or unsupported version | Cannot safely infer / untrusted | No | Only independently validated known-ID evidence permits | Review; no destructive repair | Safe diagnostic, block affected work; human review/compatible upgrade |
 
 ## Crash/restart analysis
 
-This matrix assumes the same intact workspace, no concurrent writer and no explicit
-reset. "Commit" means the application transaction returned successfully. Filesystem,
-hardware or database corruption can exceed that guarantee. CURRENT unhandled failures
-and hard termination leave the last committed row; handlers cannot run after a kill.
+Assumptions: the same intact workspace, one uploader process and no external history
+deletion/rewriting. Commit means the transaction returned successfully; storage loss
+or corruption exceeds that guarantee. The target must work without cleanup handlers
+after hard termination. Graceful Ctrl+C stops scheduling and preserves evidence; it
+does not need to drain all remote jobs to establish safety.
 
-| Interruption point | CURRENT durable state and restart | Ambiguity / duplicate risk | PROPOSED recovery |
+| Interruption boundary | CURRENT persisted behavior | Ambiguity / duplicate risk | REVIEWED TARGET recovery |
 | --- | --- | --- | --- |
-| 1. Before durable pre-upload state | Prior pending/retryable row; later submit, or processing row takes GET route | Safe for a genuinely fresh row; a retryable row may already hide an upload | Examine all prior evidence; only proven non-submission can POST |
-| 2. Intent committed, before POST | `uploading`; normally no ID; not selected | No POST actually occurred here, but restart cannot distinguish this from points 3-5; current manual reset removes the barrier | Preserve ambiguity; only proof of non-submission permits submission |
-| 3. While POST is sent | Hard termination leaves `uploading`; caught in-try Ctrl+C writes `uncertain` | Remote acceptance unknown; reset/retry may duplicate | No blind resend; review/reconciliation |
-| 4. Remote received POST, local response not handled | Same as point 3 | Remote upload may process successfully with no local ID | Preserve uncertainty; no claim that a timeout proves failure |
-| 5. ID received, not committed | Normally `uploading`, no new durable ID; older ID may remain | Volatile knowledge lost; indistinguishable from uncertain send | Treat as uncertain unless authoritative reconciliation recovers ID |
-| 6. ID committed | `processing` plus ID; next run verifies FIT then GET | Observation is possible; Ctrl+C in remaining submit try block may relabel uncertain while retaining ID | Preserve ID as recovery evidence; observe or review, never POST |
-| 7. While polling | Normally processing plus ID and next run GET; a handled error may already have committed retryable/permanent failure | Retryable error followed by restart is current re-POST path | Preserve observation identity independent of status; retry GET only |
-| 8. Terminal response received, terminal commit not completed | Prior processing plus ID; next run reobserves, unless prior error state differs | Activity may already exist; lack of terminal commit is not lack of success | Reobserve same ID; review if unavailable, never infer POST safety |
+| 1. Before durable pre-upload state | Prior row; pending/retryable can submit, processing+ID polls | Fresh row may be safe; retryable label may hide prior submission | Reinspect committed history; POST only with positive permission, otherwise GET/review |
+| 2. Intent committed, before POST | `uploading`, normally no ID, not selected | POST did not occur at this exact point, but restart cannot distinguish it from points 3-5 | Review unless stronger durable evidence positively proves no transmission; no assumed retry |
+| 3. POST being sent | Hard kill leaves uploading; caught in-try Ctrl+C writes uncertain | Acceptance unknown | Preserve uncertainty; no new POST; observe only a trustworthy saved ID |
+| 4. Remote received POST, response not handled | Same as point 3 | Upload may complete without local ID | No-ID review; no reconciliation/heuristic or override |
+| 5. ID received, not durably saved | Uploading or an older retained ID | Volatile ID lost, possibly another upload exists | Review unknown attempt; retained trustworthy ID can be observed without clearing other uncertainty |
+| 6. ID saved | Processing+ID, normally GET after FIT verification; in-try interrupt can relabel uncertain | Label may understate saved evidence | Observe same ID independently of artifact problems; retain uncertainty about any other attempt |
+| 7. During polling | Last committed processing or handled retryable/permanent failure with ID | Retryable label currently allows re-POST | Retry/defer GET or review according to cause; no POST |
+| 8. Terminal response received, terminal commit incomplete | Prior processing+ID normally reobserves | Remote result may already be terminal | Reobserve same ID; if unavailable review, never POST; if terminal evidence actually committed keep it |
 
-After a terminal commit, normal resume skips the row; a later interruption or
-manifest reconciliation can still overwrite its label today. PROPOSED recovery
-retains terminal evidence and reports any local issue separately. An atomic commit
-with an unknown outcome must be inspected on reopen, not presumed absent. No local
-ordering can eliminate the remote-acceptance/local-ID gap without additional remote
-guarantees. A conservative blocked row is preferable to an invented exactly-once claim.
+After committed completion/duplicate, remain resolved and retain local blockers.
+After committed processing failure, remain review-only. If commit outcome is unknown,
+inspect the reopened store; never presume the write failed and recreate pending.
+No local transaction can remove the remote-acceptance/local-ID gap. SPEC-001 accepts
+conservative blocking in that gap instead of claiming exactly-once behavior.
 
 ## Data integrity
 
-Identity remains `sha256:` plus exact source bytes. Manifest entry, workspace-relative
-FIT path, expected hash and optional size describe the artifact; state joins on stable
-ID and stores hash/eligibility, not all manifest metadata. FIT SHA-256 is independent
-of source identity. Byte-identical sources at different paths currently yield
-duplicate manifest IDs and are rejected; source-byte edits produce a new identity.
-These identity limitations are related future work, not solved by upload recovery.
+Identity remains `sha256:` plus exact source bytes. The manifest supplies relative
+FIT path, expected SHA-256, optional size and eligibility; state joins by stable ID.
+FIT hash is distinct from source identity. Byte-identical source files at multiple
+paths produce duplicate manifest IDs that the current uploader rejects; source edits
+change identity. These remain related future work, not recovery identity redesign.
 
-CURRENT checks SHA-256 at selection and once on entry to `_submit`, not inside each
-POST retry. The file is opened later; there is no immutable snapshot or lock. Size
-is used for progress totals, not validation or reconciliation. Path/size-only changes
-do not trigger `reconcile`'s hash/eligibility comparison.
+CURRENT verifies SHA-256 at selection and once before the entire submission retry
+loop; size is progress metadata, not an enforced validation gate. There is no locked
+snapshot. Path/size-only changes do not trigger hash/eligibility reconciliation.
 
-PROPOSED: every permitted submission attempt must use an eligible artifact matching
-the accepted manifest integrity contract, including after waiting/retrying. Never
-use artifact replacement to discard remote evidence. Exact handling of size metadata
-and the validation-to-send race is Q7. Known-ID observation does not transmit FIT
-bytes; whether it can proceed despite local artifact issues is Q4. No source edits,
-regeneration, identity merging or bypass of hash/path checks is authorized here.
+REVIEWED TARGET: validate workspace containment/path safety, eligibility and expected
+SHA-256 immediately before each actual permitted POST attempt, after relevant rate
+waits, retry delays and other pre-submission work. Waiting must not let stale
+validation authorize different bytes later. Size may assist consistency checks but
+must not replace SHA-256. Validation failure blocks the POST and remains visible.
+Correction clears only the relevant local blocker, never submission history.
+
+This is the strongest practical validation-boundary requirement, not a claim of
+race-free filesystem access under concurrent external modification. No general
+workspace locking is introduced. The later plan may choose an immutable snapshot
+or another mechanism if needed to reliably tie verified bytes to a submission.
+Observation transmits no FIT and requires no FIT validation. Manifest absence or
+ineligibility blocks new submission, not GET of an already known upload.
 
 ## Security and privacy
 
-Tokens stay in the token store, not uploader state, manifests, diagnostics or spec
-examples. SQLite upload/activity IDs, timestamps, paths and error text are private
-migration metadata. More recovery evidence must not become a raw HTTP/OAuth payload
-log. Record safe categories and only the minimum necessary evidence. HTML stripping
-and 500-character truncation in `sanitize_error` are not general secret redaction.
-User-visible recovery output must avoid credentials and private payloads.
+Recovery must not put tokens, secrets or raw private HTTP/OAuth payloads into SQLite,
+manifests, logs or user-facing diagnostics. IDs, timestamps and error details remain
+private migration metadata; retain only the safe evidence needed for recovery.
+HTML stripping/truncation alone is not secret redaction. Synthetic fixtures must
+verify both evidence retention and redaction.
 
-Token refresh failure must not erase submission knowledge. Reauthorization does not
-prove a POST failed, and switching the authenticated athlete could make an old ID
-unobservable; existing state has no athlete binding (Q6). Encryption, token storage
-redesign and OAuth flow redesign remain separate work. Use only synthetic temporary
-workspaces and mocked network failures for verification, per [SECURITY.md](../SECURITY.md).
+Token repair/refresh preserves remote evidence. Changed authentication or athlete
+context does not establish absence or permit POST. If access/identity is uncertain,
+retain evidence and show a review/access block; do not add account-search endpoints,
+scopes or automatic reconciliation. OAuth/account-binding and storage redesign are
+outside scope. Follow [SECURITY.md](../SECURITY.md); no live migrations are validation.
 
 ## Compatibility
 
-No existing database can be assumed clean. Opening current workspaces must not
-automatically clear evidence or replay every retryable row. Interpretation changes
-are required at minimum; whether a schema migration or one-time reconciliation is
-also required remains an approval-blocking decision (Q5), not an implementation detail
-to decide silently later.
+Introduce a versioned upgrade capable of representing the independent dimensions.
+Preserve legacy evidence and record conservative interpretations without inventing
+lost history. Exact SQL/version and migration mechanics are later plan work. Legacy
+`uploading` can mean intent, no transmission, in-flight POST, remote acceptance or
+an unsaved response ID. By itself it proves neither submission nor non-submission.
 
-| Legacy evidence | PROPOSED interpretation for review |
-| --- | --- |
-| Completed/duplicate | Keep authoritative resolution and IDs; no automatic submission |
-| Processing with ID | Resume observation, subject to explicit review blocks |
-| Retryable failure with ID | Treat as existing submission; do not POST from the retryable label |
-| Uploading without usable ID | Ambiguous prior attempt; review, not clean pending |
-| Uploading/uncertain with ID | Preserve ID; determine observation/review from evidence, never automatic POST |
-| Uncertain without ID | Remain blocked pending reconciliation |
-| Retryable failure without ID | Could represent a 5xx after acceptance; absence of ID is insufficient proof |
-| Pending with attempt history or retained remote evidence | Could have been reset; legacy reset erased phase/IDs. Do not assume never submitted |
-| Fresh pending, zero attempts, no conflicting evidence | Candidate for normal validated submission within intact-state assumptions |
-| Permanent failure, including malformed POST response | Preserve ambiguity/ID; inspect phase where available before any retry |
-| Local-file-changed or disappeared entry | Retain earlier resolution/IDs; current label may conceal completed history |
-| Processing without ID, unknown status, corrupt/incompatible database | Block affected recovery; explicit diagnostic, no automatic clean-state recreation |
+The mapping below assumes structurally valid rows. Trustworthy retained terminal
+evidence takes precedence over a nonterminal label, while contradictions require
+review with evidence preserved. A trustworthy ID can permit observation even when
+other history remains uncertain; that does not resolve unknown additional attempts.
 
-Schema 1's latest error and single ID cannot reconstruct erased history, multiple
-attempts or lost IDs perfectly. Restoring a stale database or deleting it can remove
-the barrier entirely; this spec cannot infer absent evidence. Q5 must define conservative
-legacy handling and downgrade compatibility before approval. Manifest version, stable
-IDs and ordinary CLI selectors remain; reset's safety semantics need explicit user
-documentation and Q3 decisions. No migration or repair is performed in this sprint.
+| Schema-1 row/evidence | Reviewed classification/action | POST permission |
+| --- | --- | --- |
+| Pending, zero attempts, no remote/contradictory evidence | Safe candidate under intact-state assumptions; apply all gates | Candidate only, never bypass validation/rate policy |
+| Pending with attempt history | Blocked/review: reset may have erased IDs/phase; observe any trustworthy retained ID | None without positive evidence; attempt count is not proof of non-submission |
+| Uploading without ID | Ambiguous intent/transmission; review | No |
+| Uploading with ID | Preserve ID and observe/review; retain ambiguity about later attempts | No |
+| Processing with ID | Observe same upload independently of local artifact problems | No |
+| Processing without ID | Malformed/insufficient recovery evidence; review | No |
+| Retryable failure with ID | Observe/review, preserving prior attempts | No from label |
+| Retryable failure without ID | Blocked/review; especially prior attempts may include accepted 5xx | No from absent ID or retryable label |
+| Uncertain with ID | Observe/review trustworthy ID; retain any other uncertainty | No |
+| Uncertain without ID | Blocked/review, no remote reconciliation | No |
+| Permanent failure with ID | Preserve evidence; authoritative processing error remains review-only; retrieval/access failures may recover observation after repair | No |
+| Permanent failure without ID | Review; malformed POST success may conceal acceptance | No without independent positive proof |
+| Completed | Preserve valid recorded completion, IDs and terminal evidence; separately expose local issues | No |
+| Duplicate | Preserve recorded duplicate resolution and evidence; do not erase legacy resolution merely because the old recognizer was broader | No |
+| Local-file-changed with retained remote evidence | Remote completion/duplicate stays resolved where evidenced; processing ID may be observed; independent local blocker remains | No |
+| Local-file-changed without remote evidence | Correctable local blocker plus review of submission history; absent ID alone proves nothing | Only if independently proven safe after correction |
+| Skipped | Preserve state/evidence; no invented submission history or automatic reset | No automatic permission |
+| Unknown/malformed state or incompatible/corrupt database | Block affected work, preserve readable evidence, report review; no recreate-as-pending | No |
+
+A completion timestamp/activity ID retained behind another label must not be erased;
+contradictory or insufficient provenance goes to review, not guessed completion.
+Schema 1 can have irrecoverably erased reset history and overwritten IDs. Missing,
+deleted, restored-stale or externally edited databases cannot be made safe by
+inventing history. The contract assumes intact history; it does not claim to detect
+every stale restore. Unsupported/newer versions must be refused by older readers,
+not silently downgraded. Reopening an interrupted upgrade must safely resume or
+refuse; no partial interpretation grants POST permission.
+
+Manifest identity/schema remain unchanged. Reset semantics and recovery reporting
+are intentional future compatibility changes requiring user documentation when
+implemented. This sprint performs no migration or repair.
 
 ## Observability
 
-PROPOSED local status/progress must distinguish resolved, awaiting observation,
-safe submission retry, blocked uncertainty and other needs-review cases. Users must
-be able to understand the reason and allowed next action for an affected activity.
-Counts must not hide stranded uploading or ambiguous retryable rows as simply ready.
-Polling failure must not be described as permission to re-upload. Dry-run must
-distinguish observation from submission; status remains free of network requests.
-Preserve aggregate progress and callback usability; exact wording/layout and how
-per-activity detail is exposed are Q8, not a broader CLI redesign.
+Existing CLI/status/progress must distinguish these actions/outcomes:
+
+| Category | Meaning |
+| --- | --- |
+| Ready to submit | Positive evidence permits a new POST, subject to current validation and rate gates |
+| Observing | Known upload is being observed or awaits permitted later observation |
+| Needs review / blocked | Automatic submission is unsafe or a required condition needs attention |
+| Resolved | Authoritative completion or duplicate |
+
+Local blockers are independent: observing plus artifact changed and resolved plus
+artifact changed must be expressible. Resolution counts reflect remote outcomes;
+review counts may overlap them for local issues. Ambiguous legacy uploading and
+unsafe retryable rows count as needing review, not ready work. Removed/ineligible
+entries with retained remote evidence remain visible in recovery reporting; they
+must not silently inflate the current manifest's eligible denominator or disappear
+from review. Layout/grouping is a plan detail, not permission to hide them.
+
+Show an understandable reason and safest allowed next action for affected activities.
+Dry-run distinguishes `would_submit` from `would_observe`, lists relevant blocks,
+and never contacts Strava. Status remains network-free; local state reconciliation
+or upgrade does not imply a network check or current remote outcome. Presentation
+must not imply that reset, elapsed time or failed GET makes POST safe. Keep aggregate
+progress and reusable callbacks without exposing secrets or internal schema detail.
 
 ## Edge cases
 
-- An interrupt or progress callback exception after an ID/terminal commit must not
-  erase that evidence or authorize POST on resume.
-- A retryable label with an older upload ID after multiple attempts must not silently
-  pick a new POST; preserve ambiguity about other possible uploads for review.
-- Missing/unusable IDs, conflicting activity/duplicate fields and unexpected response
-  identity must not manufacture success or retry permission; Q9 defines trust rules.
-- A manifest change can hide prior completion behind `local_file_changed`; a missing
-  entry also disappears from the current eligible summary without deleting its row.
-- A local read error or malformed row must not make another activity unsafe. Stopping
-  the run is acceptable when integrity cannot be maintained; continued throughput is
-  not more important than preserving each activity's evidence.
-- Restart with more known uploads than the configured capacity must retain all IDs;
-  recovering them must not create new submissions merely to fit the scheduler.
-- 404, permission failure, changed authentication and absent search results are not
-  proof that an earlier POST had no effect. Unavailable reconciliation stays visible.
+- Late Ctrl+C, callback exceptions, local changes or new errors must not overwrite
+  confirmed IDs or terminal evidence into apparent submission permission.
+- An old known ID plus an ambiguous later attempt permits safe observation of that
+  ID while retaining the extra uncertainty; resolving one upload does not fabricate
+  the history of another. No new POST is permitted.
+- Auth changes, 404 and absent remote search results are not proof of non-submission.
+  No search or automatic uncertain-upload reconciliation is added.
+- Manifest disappearance/ineligibility and changed FIT never prevent a trustworthy
+  known-ID GET; authoritative results and local problems are persisted separately.
+- A malformed row or local failure must not make another activity unsafe. Stopping
+  the run is acceptable when evidence cannot be maintained.
+- Restart above a lowered in-flight capacity retains every known ID; observing them
+  and limiting new submissions must not turn old uploads into new POSTs.
+- Unknown duplicate wording, invalid/mismatched IDs, or conflicting completion/error
+  fields preserve evidence and route to safe observation/review under response rules.
+- A processing-failed upload cannot become a fresh submission through reset,
+  reauthorization, artifact replacement or a generic force flag.
 
 ## Acceptance criteria
 
-These 18 criteria are **proposed**, not a claim that current code satisfies them.
-Where they reference Q decisions, approval requires those choices and corresponding
-criteria to be finalized; a question is not permission for an implementer to guess.
+All 18 existing IDs are retained. These define the reviewed future contract, not
+current compliance; no criterion depends on an unresolved review question.
 
-- **AC-01:** Given a valid known upload ID and no terminal result, recovery never
-  sends a new POST merely because the status changed or observation failed; it uses
-  that ID for permitted observation or reports a review block.
-- **AC-02:** Poll network/HTTP failures, still-processing results and poll-budget
-  exhaustion preserve remote evidence across restart and do not imply submission failure.
-- **AC-03:** An uncertain POST, including possible acceptance followed by unusable
-  response or interruption, is never automatically resent without approved evidence
-  resolving uncertainty (Q1/Q6).
-- **AC-04:** A retryable failure proven before submission, with no older unresolved
-  attempt, can resume submission after correction and renewed integrity/rate checks;
-  generic 5xx or retryable labels alone do not grant that permission (Q1).
-- **AC-05:** Completed activity evidence remains resolved and prevents automatic
-  resubmission across normal resume, reconciliation and local artifact issues.
-- **AC-06:** Authoritative duplicate evidence remains resolved and prevents automatic
-  resubmission; local duplicate suspicion alone never counts as authoritative resolution.
-- **AC-07:** Changed, missing or invalid local FIT artifacts block unsafe POST and
-  preserve remote evidence; known-ID observation follows the explicitly approved
-  artifact policy (Q4/Q7).
-- **AC-08:** Each crash/restart boundary in the matrix yields deterministic recovery
-  from committed evidence: safe submission only when proven, otherwise observation or review.
-- **AC-09:** Failure to persist submission intent prevents POST; known IDs are saved
-  before polling. Restart after response-persistence failure never assumes a fresh attempt.
-- **AC-10:** Multiple in-flight activities retain independent recovery evidence;
-  one failure, rate stop or interruption cannot cause another to be resubmitted unsafely.
-- **AC-11:** Recovery respects overall/read limits, reserve waits, daily stops,
-  HTTP 429 stops and bounded polling; no retry loop bypasses these controls.
-- **AC-12:** Graceful interruption stops scheduling and preserves confirmed/uncertain
-  outcomes. Hard termination never relies on cleanup handlers to make resend safe.
-- **AC-13:** Reset/recovery actions preserve historical evidence relevant to duplicate
-  prevention and obey the approved per-category policy, including any deliberate
-  override; ordinary reset never silently clears the resend barrier (Q3).
-- **AC-14:** Existing schema-1 workspaces are handled according to a reviewed legacy
-  mapping, including reset history, retained IDs and ambiguous no-ID rows; required
-  migration/reconciliation/downgrade behavior is defined before implementation (Q5).
-- **AC-15:** Malformed state, missing required IDs and contradictory response evidence
-  cause a safe diagnostic/review block, never an automatic fallback POST (Q5/Q9).
-- **AC-16:** Local status/progress and dry-run distinguish submission, observation,
-  uncertainty, review and resolution with understandable next actions and correct
-  review counts, without network access for status/dry-run (Q8).
-- **AC-17:** Recovery diagnostics, state and examples contain no tokens, secrets or
-  raw private payloads; authentication repair preserves upload evidence and does not
-  itself authorize resubmission (Q6).
-- **AC-18:** Authoritative processing failures retain the failed upload evidence;
-  subsequent retry eligibility follows an explicitly approved failure policy, not
-  automatic reuse of a generic permanent/retryable label (Q2).
+- **AC-01:** A trustworthy known upload ID routes recovery to the same upload's
+  observation or review, never a new POST because its label or observation failed.
+- **AC-02:** Poll network/HTTP failures, pending results and poll-budget exhaustion
+  preserve ID and observation evidence across restart; only GET may be retried.
+- **AC-03:** Possible acceptance without usable authoritative outcome, including
+  timeout/loss, 5xx, malformed success or interrupted submission, blocks new POST.
+  Without a trustworthy known ID it remains review-only, with no remote reconciliation.
+- **AC-04:** Every new POST requires durable positive submission permission, no older
+  unresolved submission, and all gates. Proven pre-transmission failure can retry
+  after correction; missing IDs, retryable labels and 429/4xx/5xx alone cannot permit it.
+- **AC-05:** Authoritative completion remains resolved and prevents automatic POST
+  across resume, reset, reconciliation and artifact changes; local blockers remain visible.
+- **AC-06:** Authoritative duplicates recognized by the conservative response contract
+  remain resolved with evidence retained; local suspicion or an arbitrary `duplicate`
+  substring cannot resolve a new outcome. Valid recorded legacy resolution is preserved.
+- **AC-07:** Each permitted POST revalidates path safety, eligibility and authoritative
+  SHA-256 immediately before the attempt after relevant delays. Artifact/manifest
+  problems block POST but not known-ID GET; terminal results and local blockers coexist.
+- **AC-08:** All eight crash boundaries produce deterministic safe recovery from
+  committed evidence: proven-safe candidate, same-ID observation, resolution or review.
+- **AC-09:** Intent persistence failure prevents POST; obtained trustworthy IDs are
+  saved before polling. Response-persistence failure never becomes a fresh attempt
+  on restart; stronger earlier evidence survives subsequent errors.
+- **AC-10:** Concurrent remote jobs retain independent durable evidence; a failure,
+  rate stop, lowered capacity or interruption cannot cause another activity's unsafe POST.
+- **AC-11:** Recovery respects overall/read limits, reserves, short waits, daily
+  stops, HTTP 429 stops and bounded polling; retries bypass none of these controls.
+- **AC-12:** Graceful interruption stops scheduling and preserves evidence; hard
+  termination safety relies on committed state, not cleanup handlers or assumed failure.
+- **AC-13:** Reset preserves all duplicate-prevention evidence and returns only the
+  safest valid action from the reset matrix. No force-resend/risk-acceptance override
+  is offered, including through the existing force option.
+- **AC-14:** A versioned state upgrade preserves independent submission, remote and
+  blocker evidence and applies the conservative schema-1 mapping. It invents no
+  history, safely handles interrupted upgrade and refuses unsupported/downgrade use.
+- **AC-15:** Malformed state/response, missing necessary IDs and conflicting identity
+  or outcome fields cannot manufacture resolution, erase known IDs or authorize POST;
+  preserve evidence and allow only trustworthy observation or review.
+- **AC-16:** CLI/progress/status expose ready, observing, blocked/review and resolved,
+  with independent local blockers and visible orphaned/ambiguous recovery work.
+  Dry-run distinguishes submission from observation; status/dry-run make no network calls.
+- **AC-17:** Diagnostics and durable recovery evidence exclude credentials and raw
+  private payloads. Authentication repair/context changes preserve evidence and do
+  not establish non-submission or authorize a new POST.
+- **AC-18:** Authoritative processing failure retains the upload ID and failed result
+  and remains review-only. Automatic resubmission policy for such failures is excluded.
 
 ## Verification
 
-Future verification should use synthetic workspaces, reopened SQLite databases,
-fake clocks, injected interruption/persistence failures and mocked HTTP. Assert both
-observable outcomes and which POST/GET operations occurred; a terminal state alone
-can conceal a duplicate submission. Do not send real uploads to reproduce a risk.
+Future tests use synthetic workspaces, reopened SQLite stores, fake clocks, injected
+interruption/persistence failures and mocked HTTP. Verify POST/GET counts and target
+IDs as well as user-visible actions and retained evidence; final labels alone can
+hide duplicate submission. No new tests or live uploads are part of this sprint.
 
-| Criteria | Proposed evidence after approval and implementation |
+| Criteria | Required future verification evidence |
 | --- | --- |
-| AC-01, AC-02 | GET network/5xx/429/auth/malformed and poll-budget cases; reopen store, resume; assert retained ID, no extra POST and permitted GET of same ID |
-| AC-03, AC-04 | Phase-specific connect/preflight/OAuth failures, timeout during POST, 5xx, malformed 201, missing ID; assert retry permission matches evidence/Q1, including older attempts |
-| AC-05, AC-06 | Completed/duplicate responses, local suspicion, regenerated/removed entries and restart; assert resolution evidence retained and no automatic POST |
-| AC-07 | Missing/hash-changed/path-invalid/size-mismatched artifacts and changes during a wait; known-ID cases follow Q4/Q7; assert no unsafe bytes submitted |
-| AC-08, AC-09 | Inject interruption at all eight matrix boundaries, fail state commits, reopen; inspect durable evidence and exact subsequent network operations; no power-loss guarantee inferred from mocks |
-| AC-10, AC-12 | Mixed multi-activity batches; Ctrl+C during submission/poll/wait/callback, simulated abrupt exit and resume with lower capacity; assert per-activity safety |
-| AC-11 | Fake clock/header fixtures for overall/read reserve, quarter-hour waits, daily stop, HTTP 429 and repeated pending results; assert bounded requests and preserved IDs |
-| AC-13 | Reset matrix over no-submission, ID-known, uncertain, completed, duplicate, permanent and changed-file states; reopen and verify history and allowed action under Q3 |
-| AC-14, AC-15 | Synthetic schema-1 databases for every compatibility row, invalid statuses/IDs, erased legacy reset history and conflicting responses; verify approved migration/refusal and no automatic repair-to-pending |
-| AC-16 | CLI/callback snapshots for observation, retry and review outcomes; assert counts/action meaning, dry-run distinction and zero status/dry-run network calls |
-| AC-17 | Synthetic secret markers in mocked OAuth/HTTP failures and recovery reports; assert no leakage and no evidence loss on token repair/account mismatch policy |
-| AC-18 | Processing errors, authorization errors and other observation failures distinguished; verify Q2-approved review/retry path and retained prior attempt evidence |
+| AC-01, AC-02 | GET network/5xx/429/auth/malformed failures and poll exhaustion; reopen and resume; unchanged POST count, retained ID and only permitted GETs |
+| AC-03, AC-04 | Proven pre-transmission failure then repair produces exactly the permitted POST; timeout, 5xx, malformed success, missing ID and code-only rejection do not. Include older unresolved attempts overriding safe latest failures; zero new POST after uncertain restart |
+| AC-05, AC-06 | Completion/duplicate followed by reset, changed/removed/ineligible entry and restart; preserve resolution and no POST. Test documented full duplicate assertion, negation, incomplete/unknown text, local suspicion and contradictory fields |
+| AC-07 | Missing/hash-changed/unsafe-path artifacts and mutation during waits/retries cause fresh validation and blocked POST; size cannot replace hash. Known ID plus missing/changed/ineligible/removed FIT permits GET, persists terminal result and retains local blocker |
+| AC-08, AC-09 | Inject all eight interruption windows and failed commits; reopen, assert durable evidence and exact operations. Intent-write failure means zero POST; lost response save does not authorize resend. Mocks do not prove power-loss durability |
+| AC-10, AC-12 | Mixed batches; Ctrl+C during POST/GET/wait/callback and simulated abrupt exit; restart at lower capacity, verifying each row and no cross-activity resubmission |
+| AC-11 | Fake-clock overall/read reserves, natural quarter-hour wait, daily stop, 429 and bounded pending polls; permitted operation identity and IDs survive each stop |
+| AC-13 | Every reset-matrix category, including existing force option; compare evidence before/after and after reopen, verify permitted action and zero unsafe POST |
+| AC-14, AC-15 | Every legacy mapping row through versioned upgrade/reopen, partial-upgrade failure, unsupported version, unknown state and invalid/conflicting IDs; no invented history or clean-pending repair. Retained-ID legacy retryable rows observe/review; no-ID uploading reviews; both have zero POST |
+| AC-16 | Local CLI/callback snapshots for combined remote/local conditions, absent entries, ambiguous legacy states and date/limit selection; verify review/resolution counts, reasons, would_submit/would_observe and zero status/dry-run network calls |
+| AC-17 | Synthetic credential markers in auth/HTTP failures and recovery reports; no leakage; auth repair/context ambiguity retains IDs and blocks unsafe POST |
+| AC-18 | Processing failure versus transient GET failure; failed upload remains review-only through reset/restart, retains evidence and sends zero additional POSTs |
 
-Existing tests establish parts of CURRENT behavior: successful persistence and
-no-repeat selection, processing-ID resume, bounded submission retry, uncertain
-client error, completed-reset force, FIT hash/missing detection, rate policy and
-pipeline capacity. In particular `test_retry_is_bounded` expects repeated POSTs for
-503; that expectation is evidence of current behavior, not authority for the target.
-`test_keyboard_interrupt_preserves_resumable_state` injects an interrupt in upload;
-it does not cover every interrupt window or hard termination. No current test proves
-safe restart after polling failure, reset of uncertainty, or power-loss recovery.
-
-Record future per-AC results and limitations in Completion, run focused checks and
-all [required validation](../docs/testing.md#setup-and-required-checks), then perform
-a separate specification compliance review. Passing today's suite does not verify
-these proposed criteria.
+Existing tests verify portions of CURRENT behavior, including known-processing resume,
+uncertain-client-error handling, bounded POST retries, integrity checks and rate
+policy. `test_retry_is_bounded` expects repeated POSTs for 503; that is evidence of
+current behavior, not the reviewed target. The current interruption test does not
+cover all crash windows. Passing the existing suite does not establish these ACs.
+After approved implementation, record per-AC evidence and run all
+[required checks](../docs/testing.md#setup-and-required-checks), followed by a separate
+specification compliance review. One test per criterion is not required.
 
 ## Implementation notes
 
-No final implementation plan is included or authorized. Possible approaches for
-human review are (a) interpreting existing phase/error/ID evidence conservatively,
-with legacy review blocks, or (b) persisting more precise attempt/recovery evidence
-with versioned compatibility handling. The first is smaller but cannot recover
-history already erased; the second can improve future evidence but cannot reconstruct
-unknown past remote outcomes either. The draft recommends evidence-based routing
-and preservation in either approach. Exact schema, classes, exceptions, interfaces,
-sequencing and migration mechanics belong to the plan after Q decisions and approval.
+No implementation plan has been created. The future plan selects the versioned
+representation, migration mechanics, APIs/classes, bounded retry scheduling and
+artifact-validation mechanism needed for this contract. It must preserve the three
+evidence dimensions rather than weaken the contract to fit schema 1. Exact SQL,
+column/enum names, safe diagnostic layout and code sequencing are implementation
+choices. Any discovered inability to meet a behavioral requirement must return to
+specification review; it does not authorize silent reinterpretation.
 
 ## Open questions
 
-All questions are unresolved. Recommendations are proposals for review, not decisions.
-
-| ID | Human decision required | Options / provisional recommendation |
-| --- | --- | --- |
-| Q1 | What proves a POST had no side effect, including 429, other HTTP rejection, 5xx and connection failure? | Approve explicit evidence rules by phase/status; recommend no resend for 5xx or transport uncertainty alone. Decide which rejection/connect evidence is sufficient and how earlier ambiguous attempts dominate it. |
-| Q2 | When may an authoritatively failed processing upload permit a new submission? | Keep all such cases review-only, or allow explicitly classified failures after resolving the prior attempt. Recommend review-only until precise evidence is agreed; an old ID/history must remain traceable. |
-| Q3 | What may ordinary reset and any deliberate override do for each evidence category? | Reject unsafe reset; restore observation; or offer an explicit reviewed override with retained history and clearly defined evidence/confirmation. Recommend ordinary reset never erase evidence. Decide whether risk acknowledgment alone can ever permit a deliberate resend and whether that requires narrowing the invariant explicitly. |
-| Q4 | May a known upload continue observation when the FIT is missing/changed or the manifest entry is ineligible/removed? | Recommend separate artifact review from remote observation, retaining terminal evidence. Define eligibility/selection and progress handling without re-enabling submission or silently changing audit eligibility. |
-| Q5 | What durable representation and legacy upgrade policy will preserve enough evidence? | Decide interpretation-only versus schema migration/history, ambiguous legacy pending/retryable rows, malformed-state handling, one-time review/repair and downgrade behavior. Recommend conservative blocks where schema 1 cannot prove safety; no clean-database assumption. |
-| Q6 | What reconciliation is supported for uncertain no-ID outcomes, unavailable IDs and changed authentication? | Manual review only, or separately researched scoped reconciliation. Define acceptable proof, identity/account assumptions and next actions; do not infer absence from search/timestamps alone. Recommend no new scopes/endpoints in SPEC-001 without explicit scope review. |
-| Q7 | What artifact contract applies at each allowed POST boundary? | Define when size mismatch is blocking versus advisory and how validated bytes remain tied to submitted bytes across waits/retries. Retain containment/SHA-256 checks; choose a guarantee achievable without expanding into workspace locking. |
-| Q8 | How should recovery actions and review counts appear through existing CLI/status/progress interfaces? | Decide minimum per-activity reasons, aggregate categories, dry-run action labels and selector/limit treatment for observation retries. Recommend preserving existing selectors while ensuring observation is not mislabeled as submission. |
-| Q9 | What response evidence is authoritative for completion/duplicate and usable upload identity? | Review current substring duplicate matching and activity-ID precedence, missing/mismatched IDs and contradictory fields. Define conservative recognition without guessing success, discarding known IDs or inventing a remote contract. |
+None. Human review resolved Q1-Q9 through the Sprint 10.3B decisions recorded below.
+No approval-blocking behavioral question remains. Technical representation and
+migration mechanics are deliberately deferred to the implementation plan after
+explicit approval of this revised specification.
 
 ## Decision log
 
-- 2026-09-27: Sprint 10.3A authorizes investigation and a Draft only; no implementation,
-  final plan or approval is recorded. Repository SDD governs later approval and planning.
-- 2026-09-27: Existing architecture fixes the prepared manifest/FIT boundary; this
-  specification does not redesign parsing, generation, identity or eligibility.
-- 2026-09-27: Existing repository safeguards and the sprint require no blind resend
-  after uncertain POST. Submission and observation are distinguished because the
-  current client uses separate POST-create and GET-by-ID operations.
-- 2026-09-27: CURRENT findings are anchored to the baseline commit above. The proposed
-  invariant, recovery policies and ACs remain subject to human review; Q1-Q9 are open.
+- 2026-09-27: Sprint 10.3A produced the Draft investigation at the baseline above,
+  with no implementation or approval. Its current-behavior findings remain unchanged.
+- 2026-09-27: The requesting user's Sprint 10.3B human-review brief resolved Q1-Q9.
+  These decisions select the reviewed target; they do not mark this revision Approved.
+
+| Decision | Human-reviewed resolution |
+| --- | --- |
+| Q1 | Positive proof of safe non-submission plus no older unresolved attempt is required for retry. Absence of success/ID and HTTP status alone do not permit POST; uncertain cases require review. |
+| Q2 | Authoritative processing failure retains its ID/evidence and is review-only; automatic resubmission policy is future work. |
+| Q3 | Reset preserves history and recovers the safest valid action. No force-resend or risk-acceptance override is part of SPEC-001. |
+| Q4 | Known-ID observation continues independently of missing/changed/ineligible/removed artifacts. Persist terminal evidence and retain local blockers separately. |
+| Q5 | Introduce a versioned state upgrade representing submission evidence, remote outcomes and local blockers independently; conservatively map legacy rows without invented history. |
+| Q6 | No remote reconciliation for uncertain no-ID submissions. No new endpoints/scopes/search/heuristics; changed authentication or absent results do not prove absence. |
+| Q7 | Revalidate path/eligibility/SHA-256 immediately before every permitted POST after waits; size is supplemental. GET needs no FIT validation; no general locking or impossible race-free guarantee. |
+| Q8 | Existing interfaces distinguish ready, observing, blocked/review and resolved with independent local blockers; dry-run distinguishes submission/observation, status/dry-run stay network-free. |
+| Q9 | Trust consistent authoritative activity/duplicate evidence, preserve obtained upload IDs, conservatively recognize documented duplicate assertions and fail closed on ambiguity; no undocumented structured code assumed. |
+
+- 2026-09-27: Internal consistency/architecture review retains AC-01 through AC-18
+  and updates their contracts and verification evidence. No criterion was removed
+  or renumbered. No runtime change, schema implementation or implementation plan.
+- 2026-09-27: Approval-readiness assessment below supports Reviewed status. Explicit
+  human approval of this revision remains the next gate.
+
+## Approval-readiness assessment
+
+| Review question | Result and basis |
+| --- | --- |
+| Intended behavior sufficiently unambiguous? | Yes: positive permission, conservative refusal and response rules define actions without guessing success |
+| Submission and observation separated? | Yes: failed GET cannot authorize POST; known-ID observation survives local artifact blockers |
+| Safety invariant enforceable? | Yes within intact-state/single-process assumptions, using durable intent and conservative review where acceptance is unknown |
+| Legacy workspaces conservative? | Yes: explicit versioned upgrade/mapping, no invented history and ambiguous rows blocked |
+| Reset defined? | Yes: category matrix, evidence retained, no force-resend |
+| Uncertain submission defined? | Yes: no-ID review, no automatic reconciliation or resend |
+| Processing failure defined? | Yes: retain failed evidence, review-only |
+| Artifact integrity defined? | Yes: immediate per-attempt post-wait SHA-256/path/eligibility checks, GET independent, realistic filesystem limitation |
+| Observability sufficient? | Yes: four categories, separate local blockers, orphan/review visibility and operation-specific dry-run |
+| Every AC verifiable? | Yes: all 18 map to future evidence including actual POST/GET behavior and reopened state |
+| Remaining choices implementation details? | Yes: exact representation, SQL, scheduling mechanics, integrity mechanism and layout; no undecided permission policy |
+
+**Ready for human approval.** Reviewed is not Approved, Implemented or Verified.
 
 ## Completion
 
-- Draft artifact: SPEC-001 investigation and proposed contract; no implementation commit.
-- Implementation and per-AC satisfaction: Not performed; all 18 target ACs await
-  decision finalization, approval, implementation and verification.
-- Draft validation (2026-09-27): `python -m pytest` passed 103 tests; `ruff check .`,
-  `black --check .` (60 files) and `mypy .` (60 files) passed. All 20 local links/anchors
-  resolve; both Mermaid diagrams were manually checked. Scope/privacy review found
-  only this new Markdown file, with no personal data or generated artifacts. These
-  checks validate the unchanged repository and draft, not proposed recovery behavior.
-- Specification compliance: Draft reviewed for coverage/current-versus-proposed
-  separation; final implementation compliance review has not occurred.
-- Intentional deviations/approval: None approved; unresolved choices are Q1-Q9.
-- Architecture/user documentation: Current implementation guides remain unchanged;
-  operational documentation must be updated when approved behavior is implemented.
-- Follow-up: Human review and resolution of open questions, explicit approval, then
-  an implementation plan. No push, merge, release or live migration in this sprint.
+- Artifact: Sprint 10.3B specification refinement only; CURRENT investigation preserved.
+- Implementation and per-AC satisfaction: Not performed; all 18 ACs await explicit
+  approval, planning, implementation, automated verification and compliance review.
+- Revision validation (2026-09-27): `python -m pytest` passed 103 tests;
+  `ruff check .`, `black --check .` (60 files) and `mypy .` (60 files) passed.
+  All 20 local links/anchors resolve; all 18 ACs have verification references;
+  no stale open-decision dependencies remain. Both Mermaid diagrams were manually
+  checked. Scope/privacy review found only this specification changed and no personal
+  data, secrets or generated migration artifacts. CURRENT findings compare unchanged.
+  These checks do not verify implementation of the reviewed target.
+- Specification review: Human decisions incorporated; internal consistency and
+  architecture review completed; no remaining approval blockers.
+- Approval/deviations: Explicit approval of this revision is pending; no implementation
+  deviations or force-resend policy authorized.
+- Other documentation/runtime: Unchanged. Operational/architecture docs must be
+  updated when the approved behavior is implemented.
+- Next action: Explicit human approval, then a separate implementation plan. No push,
+  merge, release, live migration or implementation is part of this sprint.
