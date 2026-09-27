@@ -6,6 +6,13 @@ They do not prove that every possible Polar export is supported or that Strava w
 display an activity in a particular way. See [architecture](architecture.md) for current
 implementation limitations and [Python guidelines](python-guidelines.md) for conventions.
 
+For substantial behavioral work, the approved [specification](../specs/README.md) defines
+intended observable behavior, implementation provides it, and tests verify it. Tests are
+evidence, not a substitute for a behavioral specification. Acceptance criteria and the
+spec's edge cases, failure behavior, compatibility, security and data-integrity requirements
+drive coverage. Do not turn implementation details into requirements merely because tests
+encode them. Important tests may cite spec/AC IDs; one test per criterion is not required.
+
 ## Setup and required checks
 
 Use Python 3.12+ and an activated project virtual environment, from the repository root:
@@ -84,11 +91,20 @@ Keep those semantic assertions; encoder success alone is insufficient.
 
 ## Regression workflow
 
-For a bug, reproduce with the smallest focused automated test where practical, identify
-the cause, implement the minimal fix, retain the regression, and run focused then full
-validation. For new behavior, agree on observable behavior and affected boundaries
-before implementation. Never weaken existing expectations just to make a change pass.
-Documentation-only edits need no artificial tests.
+For a small bug whose intended behavior is already clear: reproduce, identify the root
+cause, add a focused regression where practical, make the minimal fix and verify. A new
+spec is not necessarily needed. If correctness is ambiguous or safety/compatibility
+sensitive, investigate and specify intended behavior first, review/approve it, plan,
+implement, verify and review compliance. Do not infer the desired fix solely from a
+failing test or current implementation.
+
+SDD is the preferred workflow; strict test-first development is not required. Tests may
+be written before implementation, alongside it, or after a small implementation step.
+TDD remains an optional technique. Appropriate final automated coverage, retained
+regressions and complete validation remain required. Never weaken existing expectations
+just to pass; intentional changes to expected behavior must follow the approved spec.
+Documentation-only edits need no artificial tests. See the
+[specification workflow](../specs/README.md) for scope and approval rules.
 
 Examples of focused runs:
 
@@ -107,6 +123,13 @@ hard process termination, byte-identical duplicate sources and shared lap-bounda
 need further coverage before changing their documented behavior.
 
 ## Documentation and completion review
+
+For specified work, record verification evidence for every acceptance criterion and
+perform the [final compliance review](../specs/README.md#final-specification-compliance-review).
+Passing tests alone does not establish compliance: check intended and unplanned behavior,
+boundaries, compatibility, integrity, privacy/security, documentation and deviations.
+An unmet criterion leaves work incomplete unless the spec is intentionally revised,
+reviewed and approved. Record results and follow-ups in the spec's Completion section.
 
 Check relative links and referenced paths, CLI commands against actual help/configuration,
 and Mermaid diagrams against the implementation. Separate syntax, semantic and remote

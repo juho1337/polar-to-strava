@@ -2,14 +2,18 @@
 
 This project migrates personal Polar training history through local FIT artifacts to
 Strava. Data integrity takes precedence over convenience. Inspect the existing
-implementation before modifying it; source code is authoritative when documentation
-disagrees. Report discrepancies instead of silently changing migration semantics.
+implementation before modifying it. Code and current architecture documentation describe
+existing reality; an approved specification defines the intended target for its scoped
+change. Investigate conflicts explicitly: expected code change, mistaken spec assumption,
+or missed compatibility requirement. Do not silently let either side win.
 
 ## Read first
 
 - [Architecture](docs/architecture.md): boundaries, data flow, invariants and limitations.
 - [Python guidelines](docs/python-guidelines.md): project conventions and dependencies.
 - [Testing](docs/testing.md): regression strategy and required validation commands.
+- [Specifications](specs/README.md): SDD scope, authority, lifecycle, template and review.
+  Read existing specifications relevant to the task.
 - Relevant feature documentation linked from the architecture guide.
 - [SECURITY.md](SECURITY.md) for credentials, external APIs, security or personal data;
   [CONTRIBUTING.md](CONTRIBUTING.md) for contribution workflow.
@@ -53,26 +57,46 @@ documentation or commits. `.gitignore` is not a complete privacy boundary.
 
 ## Development workflow
 
-1. Understand the request, inspect implementation and read the relevant documentation.
-2. Identify affected boundaries and compatibility, migration, privacy and integrity risks.
-3. For behavior changes, define observable behavior and add appropriate tests. For bugs,
-   reproduce with a focused regression test where practical, find the cause and retain
-   the test. Documentation-only edits need no artificial tests.
-4. Make the smallest coherent change. Follow existing typing, model and exception
-   conventions; justify new dependencies and check GPL-3.0-only compatibility.
-5. Run focused checks while developing, then the full checks in [Testing](docs/testing.md).
-   Never weaken tests to make a change pass.
-6. Review the complete diff and `git status`: check correctness, boundaries, error
-   handling, API safety, resumability, compatibility, unnecessary complexity and private
-   or generated files. Report failures and limitations honestly.
-7. Report files changed, reasons, architectural decisions, tests/checks and their results,
-   limitations, security/privacy and compatibility implications, and migration semantics
-   affected or explicitly unchanged.
+Specification-Driven Development is preferred for substantial features, behavioral or
+architecture changes, non-trivial semantic bugs and compatibility/safety-sensitive work.
+Use the proportionality rules in [specs/README.md](specs/README.md); routine documentation,
+formatting and other trivial nonsemantic work normally need no dedicated spec.
+
+1. Understand requirements, inspect code/tests and read relevant architecture and specs.
+   Determine whether a dedicated spec is needed; create/update it when appropriate.
+2. Resolve material open questions, review architecture impact and define uniquely
+   identified acceptance criteria. Obtain approval of intended behavior before substantial
+   implementation, then create a proportional implementation plan.
+3. Implement the smallest coherent change satisfying the approved spec. Follow existing
+   typing/model/error conventions; justify dependencies and GPL-3.0-only compatibility.
+   Add/update tests from acceptance criteria, edge cases and failure/compatibility/safety
+   requirements. Tests may be written before, alongside or after a small implementation
+   step; strict test-first development is not required. Never weaken coverage to pass.
+4. Run focused checks, then the full checks in [Testing](docs/testing.md). Review the
+   complete diff and `git status` for correctness, boundaries, error handling, API safety,
+   resumability, compatibility, complexity and private/generated files.
+5. Perform the [specification compliance review](specs/README.md#final-specification-compliance-review),
+   update current architecture/user docs where behavior changed and record implementation
+   references, per-criterion verification, deviations and follow-ups in the spec.
+6. Report files/reasons, spec ID when applicable, architectural decisions, validation,
+   compliance outcome, deviations, limitations, security/privacy and compatibility
+   implications, and migration semantics affected or explicitly unchanged.
+
+For a small bug with clear existing intended behavior: reproduce, find the root cause,
+add a regression where practical, fix minimally and verify; a new spec is not necessarily
+needed. Semantic or ambiguous bugs follow the specified workflow above.
+
+Do not treat a user request as permission to invent missing behavioral requirements.
+Investigate materially ambiguous behavior, surface the decision and update the spec.
+If a spec proves incorrect, incomplete or impossible, stop affected implementation and
+review/approve its revision before continuing. Tests are evidence, not a substitute for
+the specification or permission to silently reinterpret acceptance criteria.
 
 Keep Git changes scoped. Pushes, merges, releases, remote settings changes and destructive
 actions require an explicit request; a request to edit code does not authorize them.
 
-Repository-specific rules govern architecture and safety. External planning, TDD,
-debugging and review skills may guide how work is done, but must not redefine these
-rules. Humans and different agents must be able to contribute without a particular
+Repository specifications and project instructions take precedence over generic agent
+workflows. External research, planning, debugging, testing and review skills may help
+execute approved behavior; optional TDD must not replace SDD or impose strict test-first
+ordering. Humans and different agents must be able to contribute without a particular
 provider, IDE, plugin or proprietary workflow.

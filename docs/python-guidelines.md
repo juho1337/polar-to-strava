@@ -5,6 +5,10 @@ These are project conventions, grounded in the existing code. Read the
 for validation. `pyproject.toml` is authoritative for supported Python, dependencies,
 packaging and tool settings.
 
+For substantial behavioral work, follow the [specification workflow](../specs/README.md).
+These conventions guide how approved behavior is implemented; implementation convenience
+or an existing test must not silently redefine that behavior.
+
 ## Runtime, typing and tooling
 
 Python **3.12 or newer** is required; the code uses 3.12 generic syntax. Black and Ruff

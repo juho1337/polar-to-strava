@@ -5,6 +5,12 @@ format evidence and user workflows remain in the linked feature guides. The goal
 deterministic conversion, preservation of supported observations, explicit ambiguity,
 local inspection before network use, and durable upload outcomes.
 
+[Specifications](../specs/README.md) describe intended scoped changes; this guide describes
+the current system. Approved specs define target behavior within existing boundaries,
+or explicitly reviewed changes to those boundaries/invariants. Resolve code/spec conflicts
+explicitly rather than assuming either silently wins. Update this guide when an approved
+change is implemented; specs do not replace current architecture documentation.
+
 ## Context and data flow
 
 `polar-to-strava` invokes `core.cli:app`; `python main.py` is the compatibility entry

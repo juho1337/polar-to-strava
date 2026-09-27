@@ -333,7 +333,8 @@ mypy .
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [Architecture](docs/architecture.md),
 [Python guidelines](docs/python-guidelines.md), [Testing](docs/testing.md), and
-[SECURITY.md](SECURITY.md).
+[SECURITY.md](SECURITY.md). Substantial development follows the
+[specification workflow](specs/README.md).
 
 ## License
 

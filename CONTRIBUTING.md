@@ -26,6 +26,14 @@ Python 3.12 or newer is required. Before changing code, read the
 [AGENTS.md](AGENTS.md). Read [SECURITY.md](SECURITY.md) when handling credentials,
 external APIs or personal data.
 
+For substantial behavioral, compatibility, safety or architecture changes, follow
+[Specification-Driven Development](specs/README.md): specify intended behavior and
+acceptance criteria, review architecture impact and obtain approval, plan, implement,
+verify and review specification compliance. Keep plans proportional; routine nonsemantic
+corrections and clear small bugs normally need no new spec. Tests remain required
+verification, but strict test-first ordering is optional. Link the spec and record
+deviations/follow-up work where applicable.
+
 Keep the change scoped, preserve migration and format compatibility, and add focused
 regressions for behavioral changes. Review the complete diff and Git status for personal
 data, secrets and generated artifacts before committing. Summarize changes, validation
