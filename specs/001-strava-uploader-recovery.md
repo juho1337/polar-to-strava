@@ -1,19 +1,19 @@
 # SPEC-001: Strava Uploader Recovery & Idempotency
 
-Status: Reviewed
+Status: Approved
 Created: 2026-09-27
 Reviewed: 2026-09-27 (Sprint 10.3B human decisions and consistency review)
 Human decisions: Incorporated from Sprint 10.3B (2026-09-27)
-Approval: Pending explicit human approval of this revised specification
-Implementation plan: Not created; requires approval first
+Approval: 2026-09-27 (requesting user explicitly approved the Reviewed behavioral contract)
+Implementation plan: Not created; next SDD phase
 Supersedes: None
 Investigation baseline: `1499448edfd42a32eb166c05306c607b9d6bf1b0`
 
 This is an investigation and human-reviewed behavioral contract under the
 [SDD workflow](README.md). **CURRENT** describes the baseline implementation;
 **REVIEWED TARGET** describes the selected future behavior, not implemented behavior.
-Explicit approval is still required. This document does not claim SPEC-001 is
-Approved, Implemented or Verified.
+The requesting user explicitly approved this contract on 2026-09-27.
+SPEC-001 is Approved, not Implemented or Verified.
 
 ## Problem
 
@@ -235,7 +235,7 @@ message despite these distinctions. These are observable gaps, not new CLI behav
 ## Intended behavior
 
 **REVIEWED TARGET**, selected by the human decisions in Sprint 10.3B. This is future
-behavior awaiting explicit approval and implementation; CURRENT findings above are
+behavior explicitly approved on 2026-09-27 and awaiting implementation; CURRENT findings above are
 unchanged.
 
 **Central invariant:** Never create a new Strava upload while there is evidence that
@@ -753,8 +753,8 @@ specification review; it does not authorize silent reinterpretation.
 
 None. Human review resolved Q1-Q9 through the Sprint 10.3B decisions recorded below.
 No approval-blocking behavioral question remains. Technical representation and
-migration mechanics are deliberately deferred to the implementation plan after
-explicit approval of this revised specification.
+migration mechanics are deliberately deferred to the implementation plan, now
+the next SDD phase following explicit approval of this specification.
 
 ## Decision log
 
@@ -778,8 +778,12 @@ explicit approval of this revised specification.
 - 2026-09-27: Internal consistency/architecture review retains AC-01 through AC-18
   and updates their contracts and verification evidence. No criterion was removed
   or renumbered. No runtime change, schema implementation or implementation plan.
-- 2026-09-27: Approval-readiness assessment below supports Reviewed status. Explicit
-  human approval of this revision remains the next gate.
+- 2026-09-27: Approval-readiness assessment below supported Reviewed status;
+  explicit human approval was the next gate at the end of Sprint 10.3B.
+- 2026-09-27: The requesting user explicitly approved the Reviewed SPEC-001
+  behavioral contract in its current form. Status is Approved. The contract and
+  AC-01 through AC-18 are unchanged; implementation planning is the next SDD phase.
+  No implementation plan, implementation or verification is recorded by this approval.
 
 ## Approval-readiness assessment
 
@@ -797,13 +801,15 @@ explicit approval of this revised specification.
 | Every AC verifiable? | Yes: all 18 map to future evidence including actual POST/GET behavior and reopened state |
 | Remaining choices implementation details? | Yes: exact representation, SQL, scheduling mechanics, integrity mechanism and layout; no undecided permission policy |
 
-**Ready for human approval.** Reviewed is not Approved, Implemented or Verified.
+**Human approval recorded: 2026-09-27.** Status is Approved, not Implemented or Verified.
 
 ## Completion
 
-- Artifact: Sprint 10.3B specification refinement only; CURRENT investigation preserved.
-- Implementation and per-AC satisfaction: Not performed; all 18 ACs await explicit
-  approval, planning, implementation, automated verification and compliance review.
+- Artifact: Sprint 10.3B specification refinement and subsequent explicit human
+  approval recorded; CURRENT investigation and behavioral contract preserved.
+- Implementation and per-AC satisfaction: Not performed; specification approval
+  is complete. All 18 ACs await planning, implementation, automated verification and
+  compliance review.
 - Revision validation (2026-09-27): `python -m pytest` passed 103 tests;
   `ruff check .`, `black --check .` (60 files) and `mypy .` (60 files) passed.
   All 20 local links/anchors resolve; all 18 ACs have verification references;
@@ -813,9 +819,9 @@ explicit approval of this revised specification.
   These checks do not verify implementation of the reviewed target.
 - Specification review: Human decisions incorporated; internal consistency and
   architecture review completed; no remaining approval blockers.
-- Approval/deviations: Explicit approval of this revision is pending; no implementation
-  deviations or force-resend policy authorized.
+- Approval/deviations: The requesting user explicitly approved this contract on
+  2026-09-27; no implementation deviations or force-resend policy authorized.
 - Other documentation/runtime: Unchanged. Operational/architecture docs must be
   updated when the approved behavior is implemented.
-- Next action: Explicit human approval, then a separate implementation plan. No push,
+- Next action: Create a separate implementation plan from the approved specification. No push,
   merge, release, live migration or implementation is part of this sprint.
