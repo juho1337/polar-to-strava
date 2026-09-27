@@ -20,9 +20,18 @@ black --check .
 mypy .
 ```
 
-Python 3.12 or newer is required. Follow the existing domain, importer, validation,
-serialization, and manifest boundaries. Tests must not call the real Strava API or use
-real credentials.
+Python 3.12 or newer is required. Before changing code, read the
+[architecture](docs/architecture.md), [Python guidelines](docs/python-guidelines.md) and
+[testing strategy](docs/testing.md). AI contributors should also follow the root
+[AGENTS.md](AGENTS.md). Read [SECURITY.md](SECURITY.md) when handling credentials,
+external APIs or personal data.
+
+Keep the change scoped, preserve migration and format compatibility, and add focused
+regressions for behavioral changes. Review the complete diff and Git status for personal
+data, secrets and generated artifacts before committing. Summarize changes, validation
+and limitations; call out architecture, manifest, migration or security implications.
+Tests must not call the real Strava API or use real credentials. Do not push, merge,
+release or modify remote settings unless explicitly requested by the maintainer/user.
 
 ## Licensing status
 

@@ -103,6 +103,12 @@ reset, run the same `strava upload "<workspace>" --all` command.
 
 ### The migration was interrupted
 
-Run `strava status --details`, then resume with `strava upload "<workspace>" --all`.
-Accepted uploads with known IDs resume polling without another POST. An interruption
-during an unknown POST outcome remains `uncertain` for manual review.
+Run `strava status "<workspace>" --details` and review the states below before deciding
+whether to resume with `strava upload "<workspace>" --all`.
+Entries still in `processing` with known upload IDs resume polling without another POST.
+A polling failure or timeout can instead leave `retryable_failure` with an upload ID;
+the current uploader can submit that entry again on the next run. Review its remote
+outcome before retrying. A caught interruption during POST becomes `uncertain`; a hard
+process termination can leave `uploading`, which is not automatically selected again.
+Both require review before resetting. See the
+[recovery limitations](architecture.md#uploader-and-persistence).

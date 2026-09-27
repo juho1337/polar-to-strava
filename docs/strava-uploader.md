@@ -50,9 +50,11 @@ most N new or retryable activities and also resumes every matching activity alre
 Strava processing. Optional `--from` and `--to` dates filter the eligible manifest set.
 Dry-run loads and validates the manifest,
 initializes state, verifies selected FIT existence and SHA-256, and performs no Strava
-request. Immediately before every real POST the FIT hash is checked again.
+request. Submission checks the FIT hash again before entering its retry loop; there is
+no additional hash check inside each retry attempt.
 
-Uploads use a bounded asynchronous pipeline. The default allows three submitted uploads
+Uploads use synchronous HTTP calls in a bounded scheduler while Strava processes uploads
+asynchronously. The default allows three submitted uploads
 to be processing at once, polls them in turn, and applies bounded polling backoff. Set a
 smaller or larger bound with `--max-in-flight`, up to 10. Progress reports migrated and
 authoritative duplicate activities as resolved. Pending, processing, retryable, and
@@ -78,6 +80,12 @@ stops scheduling and leaves the last durable state available for a later `--all`
 A network failure
 during POST becomes `uncertain` because Strava provides no idempotency key and the client
 cannot know whether the request was accepted; it is not blindly resent.
+
+Only entries still in `processing` with a known upload ID resume polling. Polling
+errors/timeouts can leave `retryable_failure` with that ID retained; a later run can POST
+those entries again. Review the remote outcome first. A hard termination can leave
+`uploading`, which is not automatically selected again. See
+[architecture recovery limitations](architecture.md#uploader-and-persistence).
 
 Regenerated manifests are reconciled by stable activity ID. New activities are added.
 Changed FIT hashes or eligibility and disappeared activities become

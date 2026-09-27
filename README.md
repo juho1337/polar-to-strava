@@ -331,7 +331,9 @@ black --check .
 mypy .
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md), [Architecture](docs/architecture.md),
+[Python guidelines](docs/python-guidelines.md), [Testing](docs/testing.md), and
+[SECURITY.md](SECURITY.md).
 
 ## License
 
