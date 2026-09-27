@@ -1,11 +1,13 @@
 # SPEC-001 Uploader Recovery Implementation Plan
 
-Status: Draft
+Status: Approved
 Specification: [SPEC-001](001-strava-uploader-recovery.md)
 Specification status: Approved
 Specification baseline: `49eded371fd25b01c3b854d537b296b01f4045bb`
 Created: 2026-09-27
-Execution: Not started; human plan review and a separate implementation request required
+Human approval date: 2026-09-28
+Human approval: Requesting user explicitly approved the implementation choices in plan commit c65c32b8890824567d4542d0062b420f14de5d8c.
+Execution: Not started; a separate implementation request is required
 
 **Goal:** Implement the approved recovery contract without allowing observation
 failure, erased history or uncertainty to authorize a new Strava upload.
@@ -30,7 +32,7 @@ Read [AGENTS.md](../AGENTS.md), [specification process](README.md), the approved
 [architecture](../docs/architecture.md), [testing](../docs/testing.md),
 [Python conventions](../docs/python-guidelines.md), [contribution guidance](../CONTRIBUTING.md)
 and [security policy](../SECURITY.md). Current implementation defines existing behavior;
-SPEC-001 defines the target; this Draft proposes how to reach it. Stop and report any
+SPEC-001 defines the target; this Approved plan records how to reach it. Stop and report any
 unimplementable requirement rather than reinterpret the contract.
 
 - Preserve source identity, manifest version 1, eligibility rules and domain isolation.
@@ -816,7 +818,7 @@ text-based duplicate recognition, credential context not bound to historical ath
 unsupported concurrent processes, stale restores and hardware loss. These are handled
 by explicit review/limitations within SPEC-001, not new behavioral choices. No conflict
 with the approved specification or additional behavior needing human decision was
-identified. Human review is still needed for this Draft's implementation choices.
+identified. The requesting user explicitly approved these implementation choices on 2026-09-28.
 
 After automated checks and compliance, a separately authorized human-controlled
 acceptance may inspect a **private backup/copy** locally with network disabled first,
@@ -847,5 +849,5 @@ This planning sprint changes only this plan, leaves the approved spec untouched,
 runs the repository-required checks plus link/path/reference/privacy checks. Results
 are recorded in the delivery report, not as evidence that the future behavior exists.
 
-Next SDD action: human review of this Draft implementation plan, then a separately
-authorized implementation sprint using the approved contract. Stop here for Sprint 10.3C.
+Next SDD action: separately authorized Implementation Sprint 1, WP1–WP3:
+Persistence / Evidence / Authorization Foundation. Implementation has not started.
