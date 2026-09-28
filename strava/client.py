@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import urlencode
 
 import httpx
@@ -35,6 +36,20 @@ class FailurePhase(StrEnum):
 class PreparedAccess:
     token: str = field(repr=False)
     expires_at: int
+
+
+class UploadClient(Protocol):
+    """Prepared transport boundary for the future guarded orchestration integration."""
+
+    rate_limit: RateLimit | None
+
+    def prepare_access(self) -> PreparedAccess: ...
+
+    def upload(
+        self, artifact: VerifiedArtifact, external_id: str, access: PreparedAccess
+    ) -> ResponseEvidence: ...
+
+    def get_upload(self, upload_id: str, access: PreparedAccess) -> ResponseEvidence: ...
 
 
 class RequestFailure(Exception):
