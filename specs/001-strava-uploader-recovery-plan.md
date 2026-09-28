@@ -7,7 +7,40 @@ Specification baseline: `49eded371fd25b01c3b854d537b296b01f4045bb`
 Created: 2026-09-27
 Human approval date: 2026-09-28
 Human approval: Requesting user explicitly approved the implementation choices in plan commit c65c32b8890824567d4542d0062b420f14de5d8c.
-Execution: Not started; a separate implementation request is required
+Execution: WP1–WP3 implemented and verified (2026-09-28); WP4–WP8 incomplete; execution guards active
+
+## Approved execution sequencing clarification (2026-09-28)
+
+The requesting user authorized Sprint 10.3D (WP1–WP3) and explicitly approved this
+sequencing clarification. WP1–WP3 replace interfaces consumed by the legacy scheduler;
+running it during partial integration is unsafe. The temporary development guard
+therefore applies at **both the CLI and service/uploader execution boundaries**, before
+client use, OAuth, POST or GET. There is no legacy compatibility mode, environment
+override, force bypass or test-only production escape hatch.
+
+Orchestration-dependent tests may be individually deferred until WP4–WP5, retaining
+their behavioral intent and historical reference. Foundation tests remain active.
+All required deferred tests must be restored/replaced before guard removal; WP8 may
+not remove it unless required orchestration tests and AC evidence are active and
+passing. This changes sequencing only, not SPEC-001, its ACs or the approved design.
+
+The seven narrowly scoped deferrals are:
+
+| Test in `tests/test_strava_uploader.py` | Reason / owner | Required restored or replacement behavior |
+| --- | --- | --- |
+| `test_successful_async_upload_persists_and_does_not_repeat` | Requires connected POST/poll scheduler; WP4/WP5 | Persist completion, then zero repeat POST on restart |
+| `test_retry_is_bounded` | Historical three-POST 503 expectation is forbidden; WP4 | One POST, uncertainty/review, zero POST after restart |
+| `test_uncertain_network_outcome_is_not_retried` | Requires connected POST path; WP4 | Persist ambiguity and refuse resend |
+| `test_rate_limit_stops_batch_without_retrying` | Requires scheduling after HTTP 429; WP4/WP5 | Stop batch, retain operation-specific evidence and ID |
+| `test_bounded_pipeline_has_multiple_processing_uploads` | Requires remote-job scheduler; WP5 | Bound new submissions and retain all existing remote jobs |
+| `test_daily_rate_limit_stops_uploader_with_pending_state` | Requires request preparation; WP4 | Daily reserve stops before intent/POST, preserving prior provenance |
+| `test_keyboard_interrupt_preserves_resumable_state` | Requires request-boundary execution; WP4/WP5 | Preserve intent, known IDs and stronger terminal evidence |
+
+Each deferred test has an individual SPEC-001/WP reason and its historical baseline
+reference. No module is skipped. Active replacement guard tests cover direct execution,
+CLI rejection, no client/auth/state access before CLI refusal, force non-bypass and
+local synthetic operation. Existing non-scheduler tests are adapted to typed evidence;
+known-ID selection is tested now, while actual scheduled GET resume remains WP5.
 
 **Goal:** Implement the approved recovery contract without allowing observation
 failure, erased history or uncertainty to authorize a new Strava upload.
@@ -520,18 +553,18 @@ ACs: AC-05, AC-06, AC-08, AC-09, AC-13, AC-14, AC-15, AC-17.
 Dependencies: none. Produces shared evidence values and the persistence primitives
 above. WP3 completes the public submission gate and reset/reconcile authorization.
 
-- [ ] Define typed enums/dataclasses and three tables with stated checks/indexes.
-- [ ] Implement schema detection/backup/atomic upgrade with every legacy mapping row.
-- [ ] Implement monotonic evidence writes, private transactional intent insertion and
+- [x] Define typed enums/dataclasses and three tables with stated checks/indexes.
+- [x] Implement schema detection/backup/atomic upgrade with every legacy mapping row.
+- [x] Implement monotonic evidence writes, private transactional intent insertion and
   persisted blockers. Do not expose a callable submission gate until WP3 supplies its
   permission predicate; no permissive placeholder or alternate public insertion API.
-- [ ] Add `test_v1_mapping_matrix`, `test_upgrade_reopen_is_idempotent`,
+- [x] Add `test_v1_mapping_matrix`, `test_upgrade_reopen_is_idempotent`,
   `test_upgrade_rollback_at_each_stage`, `test_newer_version_refused_without_writes`,
   `test_nonempty_missing_metadata_is_not_fresh`, `test_terminal_evidence_survives_updates`
   and `test_known_id_and_unknown_other_attempt_coexist`. Assertions: equal activity
   counts, retained IDs/counters, mapped evidence, no fabricated history, old-or-new
   complete schema after failures, no tokens/raw errors in new fields.
-- [ ] Run `python -m pytest tests/test_strava_state.py -q`; require all cases pass
+- [x] Run `python -m pytest tests/test_strava_state.py -q`; require all cases pass
   and isolated synthetic database snapshots show no unsafe candidate after failure.
 
 Risk: schema-1 provenance is incomplete; conservative review is intentional, not a
@@ -549,17 +582,17 @@ PreparedAccess and the new UploadClient protocol. Define the small VerifiedArtif
 value type in new artifacts.py here; WP4 adds snapshot creation/validation. Temporary
 old callers remain disabled until integrated.
 
-- [ ] Implement strict independent ID extraction and response classification.
-- [ ] Implement anchored duplicate recognition and safe fixed diagnostics.
-- [ ] Split token preparation from transport, accept verified stream and disable
+- [x] Implement strict independent ID extraction and response classification.
+- [x] Implement anchored duplicate recognition and safe fixed diagnostics.
+- [x] Split token preparation from transport, accept verified stream and disable
   POST retries/late token refresh; distinguish actual POST failure from preflight.
-- [ ] Add `test_activity_id_without_upload_id_completes`,
+- [x] Add `test_activity_id_without_upload_id_completes`,
   `test_partial_valid_id_survives_malformed_fields`, `test_id_conflict_retains_original`,
   `test_duplicate_assertion_matrix`, `test_post_errors_never_grant_retry`,
   `test_get_error_preserves_target` and `test_response_diagnostics_redacted`.
   Assert returned evidence and exact MockTransport POST/GET counts, no exceptions
   that lose a trustworthy ID, no completion from contradictory fields.
-- [ ] Run `python -m pytest tests/test_strava_responses.py -q`; require the matrix
+- [x] Run `python -m pytest tests/test_strava_responses.py -q`; require the matrix
   and OAuth regression tests pass without live transport.
 
 Risk: text duplicate evidence is narrow and service-dependent; unknown wording
@@ -573,18 +606,18 @@ Files: recovery.py/state.py/uploader.py selection; new test_strava_recovery.py a
 test_strava_state.py. ACs: AC-01, AC-04, AC-05, AC-06, AC-07, AC-13, AC-14, AC-15, AC-16, AC-18.
 Depends on WP1/WP2; produces classifier/permissions and reset/reconcile API above.
 
-- [ ] Implement pure classification with independent per-attempt observation and
+- [x] Implement pure classification with independent per-attempt observation and
   activity review reasons; implement final positive submission predicate once.
-- [ ] Reuse that predicate in transactional `begin_submission`; reject stale revision.
-- [ ] Reconcile manifest changes into blockers without replacing remote outcomes.
-- [ ] Implement safe reset, retained metadata and state-union selection including
+- [x] Reuse that predicate in transactional `begin_submission`; reject stale revision.
+- [x] Reconcile manifest changes into blockers without replacing remote outcomes.
+- [x] Implement safe reset, retained metadata and state-union selection including
   explicit/date/limit cases and removed entries.
-- [ ] Add `test_submission_permission_matrix`, `test_observation_ignores_artifact_blocker`,
+- [x] Add `test_submission_permission_matrix`, `test_observation_ignores_artifact_blocker`,
   `test_reset_matrix_preserves_evidence`, `test_reconcile_preserves_remote_dimensions`,
   `test_orphan_date_filter_requires_explicit_selection`, `test_processing_failure_stays_review`
   and `test_terminal_plus_unknown_history_keeps_review`. Assert no classifier path
   turns review/known ID into submit, and reset never removes history.
-- [ ] Run `python -m pytest tests/test_strava_state.py tests/test_strava_recovery.py -q`.
+- [x] Run `python -m pytest tests/test_strava_state.py tests/test_strava_recovery.py -q`.
 
 Risk: accidental restoration of safe origin after reset; completion requires negative
 permission tests for every protected evidence category and both local/remote axes.
@@ -849,5 +882,69 @@ This planning sprint changes only this plan, leaves the approved spec untouched,
 runs the repository-required checks plus link/path/reference/privacy checks. Results
 are recorded in the delivery report, not as evidence that the future behavior exists.
 
-Next SDD action: separately authorized Implementation Sprint 1, WP1–WP3:
-Persistence / Evidence / Authorization Foundation. Implementation has not started.
+Next SDD action: human review of the WP1–WP3 foundation. WP4–WP6 require separate
+authorization; keep both development guards active and do not merge or release.
+
+
+## Sprint 10.3D execution evidence (2026-09-28)
+
+Implementation commit: `1d77ad4944a44f81ee22ad1f125e782eccad8ac4`
+Prepared client protocol: `2db8a8569b640d4372eef7f407bd8bd0c70e342b`
+Branch: `spec-001-foundation` (unmerged).
+
+WP1–WP3 are implemented. SPEC-001 remains Approved, not Implemented or Verified;
+this is foundation evidence, not complete AC satisfaction. WP4–WP8 remain incomplete.
+The coupled store, client and selection interfaces, their guards and regression tests
+were committed together so the runtime replacement does not expose an intermediate
+compatibility path. Sequencing clarification and execution evidence form a separate
+reviewable documentation commit. No squash, push, merge or release was performed.
+The planned protocol declaration was added in a small separately checked follow-up.
+
+- WP1: frozen evidence values; three schema-2 tables with checks/indexes/FKs; validated
+  v1 upgrade, unique SQLite backup, explicit transaction/version-last commit, rollback
+  and reopen; conservative legacy mapping and monotonic evidence writes.
+- WP2: strict independent ID/response evidence parsing, conservative FIT-basename
+  duplicate assertions, operation/phase failures, memory-only PreparedAccess, stream
+  transport without implicit refresh or retry. Unknown filename/prose shapes review.
+- WP3: one positive submission predicate reused inside the intent transaction;
+  independent GET permission; evidence-preserving reconciliation/reset; deprecated
+  no-op force; manifest/state-union selection with date and submission-only limits.
+- Artifact implementation is the proof value only. Snapshot creation, request
+  preparation ordering, connected POST and observation scheduling are not implemented.
+- Both CLI non-dry-run execution and Uploader.run refuse before client use with the
+  fixed integration-incomplete diagnostic. Legacy scheduler entry points and generic
+  status mutation are removed, not retained behind a compatibility switch.
+- Local preview and the existing status projection remain transitional. Full overlapping
+  categories, orphan reporting layouts and would_submit/would_observe rendering remain
+  WP7. They are not claimed complete by these foundation checks.
+
+Validation: full `python -m pytest` reported **220 active tests passed, 7 individually
+  deferred orchestration tests** (227 collected). `ruff check .`, `black --check .`
+  (67 files) and `mypy .` (67 files) passed. Focused modules passed: state 57,
+  response/client 37, authorization/guards 30, and affected uploader 26 active plus
+  the seven documented deferrals. Tests use synthetic temporary workspaces and
+  HTTPX mock transports only; no real migration workspace or real Strava request.
+Checklist test labels are covered by equivalent parameterized tests where appropriate
+(for example, reopen/idempotency is asserted in every legacy-mapping case).
+
+Migration fault injection covers validation, backup, table creation, row mapping,
+post-mapping validation, version update and post-commit failure. Reopen yields complete
+v1 or validated v2, never a clean submission candidate from uncertain history. Separate
+intent/response-write failures verify rollback and retained intent barriers. Backups
+preserve original private v1 diagnostics; new logical v2 records contain fixed codes,
+validated IDs and minimal evidence, not raw response bodies or arbitrary old errors.
+No downgrade or automatic stale-backup restore is implemented.
+
+A fresh read-only review identified four important gaps: unsupported terminal claims
+in malformed v2, cross-activity upload-ID attribution, lost parser conflicts on HTTP
+errors, and modal/prefix duplicate wording. All were corrected with regression tests;
+stronger existing outcomes remain retained while conflicting new attribution reviews.
+The executor reviewed the complete changes and the final regression results. There
+was no second reviewer pass, and passing mocks do not establish live API behavior or
+hardware power-loss durability. Concurrent writers and external stale restores remain
+outside the approved guarantees.
+
+SPEC-001/AC-01–AC-18, dependencies, manifest/domain schemas and approved plan design
+are unchanged. The only plan changes are the explicitly approved sequencing note,
+WP1–WP3 checkmarks and execution/lifecycle evidence. No new behavioral decision.
+The next step is human review; do not automatically proceed to WP4.
