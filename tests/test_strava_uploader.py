@@ -101,15 +101,10 @@ def test_manifest_selection_and_dry_run_make_no_api_call(tmp_path: Path) -> None
         assert store.load(identifier).attempts == ()
 
 
-@pytest.mark.skip(
-    reason="SPEC-001 WP4/WP5: orchestration disabled by approved Sprint 10.3D sequencing"
-)
-def test_successful_async_upload_persists_and_does_not_repeat() -> None:
-    """Persist asynchronous completion and prevent a second POST on restart.
+def test_successful_async_upload_persists_and_does_not_repeat(tmp_path: Path) -> None:
+    from tests.test_strava_scheduler import test_async_completion_restart_no_post
 
-    Historical implementation: d9b0027:tests/test_strava_uploader.py.
-    Restore/replace before the development guard is removed in WP8.
-    """
+    test_async_completion_restart_no_post(tmp_path)
 
 
 def test_duplicate_and_permanent_states_are_not_reselected(tmp_path: Path) -> None:
@@ -383,13 +378,10 @@ def test_cli_requires_explicit_upload_selector(tmp_path: Path) -> None:
     assert "exactly one" in result.output
 
 
-@pytest.mark.skip(reason="SPEC-001 WP5: orchestration disabled by approved Sprint 10.3D sequencing")
-def test_bounded_pipeline_has_multiple_processing_uploads() -> None:
-    """Bound remote jobs without discarding identities or exceeding new-submission capacity.
+def test_bounded_pipeline_has_multiple_processing_uploads(tmp_path: Path) -> None:
+    from tests.test_strava_scheduler import test_deferred_capacity_and_lower_capacity_restore
 
-    Historical implementation: d9b0027:tests/test_strava_uploader.py.
-    Restore/replace before the development guard is removed in WP8.
-    """
+    test_deferred_capacity_and_lower_capacity_restore(tmp_path)
 
 
 def test_limit_counts_new_uploads_but_resumes_processing(tmp_path: Path) -> None:
@@ -499,15 +491,12 @@ def test_progress_counts_only_completed_and_duplicate_as_resolved(tmp_path: Path
     assert result.percent == pytest.approx(100 / 3)
 
 
-@pytest.mark.skip(
-    reason="SPEC-001 WP4/WP5: orchestration disabled by approved Sprint 10.3D sequencing"
-)
-def test_keyboard_interrupt_preserves_resumable_state() -> None:
-    """Interrupt handling retains intent, IDs and terminal facts at each request boundary.
+def test_keyboard_interrupt_preserves_resumable_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.test_strava_scheduler import test_keyboard_interrupt_preserves_recovery
 
-    Historical implementation: d9b0027:tests/test_strava_uploader.py.
-    Restore/replace before the development guard is removed in WP8.
-    """
+    test_keyboard_interrupt_preserves_recovery(tmp_path, "get", monkeypatch)
 
 
 def test_status_is_local_and_reports_progress(tmp_path: Path) -> None:

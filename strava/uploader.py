@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -17,12 +18,26 @@ from strava.recovery import (
     Code,
     Operation,
     RecoveryEvent,
+    Remote,
     classify_actions,
+    observation_permission,
     submission_permission,
 )
 from strava.state import UploadStateStore
 
 INTEGRATION_INCOMPLETE = "recovery integration incomplete"
+
+
+@dataclass(slots=True)
+class ProcessingJob:
+    identifier: str
+    attempt_id: int
+    upload_id: str
+    due: float
+    interval: float
+    polls: int = 0
+    failures: int = 0
+    deferred: bool = False
 
 
 class Uploader:
@@ -109,9 +124,17 @@ class _RecoveryRunner:
         *,
         clock: Callable[[], float],
         on_event: Callable[[RecoveryEvent], None] | None = None,
+        max_in_flight: int = 3,
+        poll_interval: float = 2,
+        max_polls: int = 60,
+        max_retries: int = 3,
     ) -> None:
+        if not 1 <= max_in_flight <= 10 or max_polls < 1 or max_retries < 1:
+            raise ValueError("Invalid observation capacity or budget")
         self.workspace, self.store, self.client = workspace, store, client
         self.policy, self.clock, self.on_event = policy, clock, on_event
+        self.capacity, self.max_polls, self.max_retries = max_in_flight, max_polls, max_retries
+        self.poll_interval = max(1.0, poll_interval)
         self.stopped = False
 
     def _access(self, *, read: bool = False) -> PreparedAccess:
@@ -180,3 +203,106 @@ class _RecoveryRunner:
                 self._notify(identifier)
         except ArtifactFailure as error:
             self.store.set_blocker(identifier, "activity", error.code)
+
+    def _restore(
+        self, identifiers: set[str], jobs: dict[int, ProcessingJob], *, restored: bool
+    ) -> None:
+        retained: set[int] = set()
+        for identifier in identifiers:
+            record = self.store.load(identifier)
+            for attempt in record.attempts:
+                if not attempt.upload_id or attempt.remote not in {
+                    Remote.PROCESSING,
+                    Remote.DEFERRED,
+                }:
+                    continue
+                retained.add(attempt.attempt_id)
+                if attempt.attempt_id not in jobs:
+                    jobs[attempt.attempt_id] = ProcessingJob(
+                        identifier,
+                        attempt.attempt_id,
+                        attempt.upload_id,
+                        self.clock() + (0 if restored else self.poll_interval),
+                        self.poll_interval,
+                    )
+                if not observation_permission(record, attempt.attempt_id, True).allowed:
+                    jobs[attempt.attempt_id].deferred = True
+        for attempt_id in jobs.keys() - retained:
+            del jobs[attempt_id]
+
+    def _observe(self, job: ProcessingJob) -> None:
+        try:
+            access = self._access(read=True)
+        except DailyLimitReached:
+            self.store.defer_observation(job.attempt_id, Code.RATE_LIMIT)
+            self.stopped = True
+            return
+        except RequestFailure as error:
+            self.store.defer_observation(job.attempt_id, error.code)
+            job.deferred = True
+            return
+        if not observation_permission(
+            self.store.load(job.identifier), job.attempt_id, True
+        ).allowed:
+            job.deferred = True
+            return
+        job.polls += 1
+        try:
+            evidence = self.client.get_upload(job.upload_id, access)
+        except RequestFailure as error:
+            # Preserve partial/conflicting evidence before adding a retrieval deferral.
+            self.store.record_evidence(job.attempt_id, error.evidence)
+            reason = Code.RETRIEVAL if error.code == Code.REQUEST else error.code
+            self.store.defer_observation(job.attempt_id, reason, error.status_code)
+            if error.code == Code.RATE_LIMIT:
+                self.stopped = True
+            if error.code in {Code.NETWORK, Code.SERVER}:
+                job.failures += 1
+                job.deferred = job.failures >= self.max_retries
+            else:
+                job.deferred = True
+        except KeyboardInterrupt:
+            self.store.defer_observation(job.attempt_id, Code.NETWORK)
+            raise
+        else:
+            self.store.record_evidence(job.attempt_id, evidence)
+            job.failures = 0
+        if job.polls >= self.max_polls:
+            self.store.defer_observation(job.attempt_id, Code.POLL_BUDGET)
+            job.deferred = True
+        job.interval = min(30.0, job.interval * 2)
+        job.due = self.clock() + job.interval
+        self._notify(job.identifier)
+
+    def run(self, selected: list[ActionDecision]) -> tuple[ActionDecision, ...]:
+        """Run selected internal jobs; each invocation starts fresh observation budgets."""
+        self.stopped = False
+        identifiers = {a.stable_activity_id for a in selected}
+        pending = list(
+            dict.fromkeys(a.stable_activity_id for a in selected if a.kind == Action.SUBMIT)
+        )
+        jobs: dict[int, ProcessingJob] = {}
+        self._restore(identifiers, jobs, restored=True)
+        try:
+            while not self.stopped:
+                while pending and len(jobs) < self.capacity and not self.stopped:
+                    self.submit(pending.pop(0))
+                    self._restore(identifiers, jobs, restored=False)
+                if self.stopped:
+                    break
+                active = [job for job in jobs.values() if not job.deferred]
+                if not active:
+                    break
+                job = min(active, key=lambda item: (item.due, item.attempt_id))
+                delay = job.due - self.clock()
+                if delay > 0:
+                    self.policy.sleep(delay)
+                self._observe(job)
+                self._restore(identifiers, jobs, restored=False)
+        except KeyboardInterrupt:
+            self.stopped = True
+        return tuple(
+            action
+            for identifier in sorted(identifiers)
+            for action in classify_actions(self.store.load(identifier))
+        )
