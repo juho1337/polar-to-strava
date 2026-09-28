@@ -3,6 +3,7 @@
 import hashlib
 import json
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 
 import httpx
@@ -11,17 +12,21 @@ from typer.testing import CliRunner
 
 from core.cli import app
 from core.errors import ConfigurationError, ValidationError
+from strava.artifacts import VerifiedArtifact
 from strava.client import (
-    StravaAPIError,
+    FailurePhase,
+    PreparedAccess,
+    RequestFailure,
     StravaClient,
     TokenStore,
     authorization_url,
     parse_rate_limit,
 )
-from strava.models import RateLimit, TokenSet, UploadStatus
+from strava.models import RateLimit, TokenSet
 from strava.progress import snapshot
 from strava.rate_limit import DailyLimitReached, RateLimitPolicy, RateWait
-from strava.state import UploadState, UploadStateStore
+from strava.recovery import Action, Code, Remote, ResponseEvidence
+from strava.state import UploadStateStore
 from strava.uploader import Uploader
 
 
@@ -86,109 +91,75 @@ def multi_workspace(tmp_path: Path, count: int) -> tuple[Path, list[str]]:
     return root, identifiers
 
 
-class FakeClient:
-    rate_limit: RateLimit | None = None
-
-    def __init__(self, upload: UploadStatus, polls: list[UploadStatus] | None = None) -> None:
-        self.upload_result = upload
-        self.polls = polls or []
-        self.upload_calls = 0
-        self.poll_calls = 0
-
-    def upload(self, path: Path, external_id: str) -> UploadStatus:
-        self.upload_calls += 1
-        return self.upload_result
-
-    def get_upload(self, upload_id: str) -> UploadStatus:
-        self.poll_calls += 1
-        return self.polls.pop(0)
-
-
-class FakeClock:
-    def __init__(self) -> None:
-        self.value = 0.0
-
-    def __call__(self) -> float:
-        return self.value
-
-    def sleep(self, seconds: float) -> None:
-        self.value += seconds
-
-
 def test_manifest_selection_and_dry_run_make_no_api_call(tmp_path: Path) -> None:
     root, identifier = workspace(tmp_path)
-    fake = FakeClient(UploadStatus(id_str="1", status="processing"))
     with UploadStateStore(root / "migration-state.sqlite3") as store:
-        clock = FakeClock()
-        uploader = Uploader(root, store, fake, sleep=clock.sleep, clock=clock)
+        uploader = Uploader(root, store)
         selected = uploader.select(limit=1)
-        assert [item.stable_activity_id for item in selected] == [identifier]
+        assert [(a.stable_activity_id, a.kind) for a in selected] == [(identifier, Action.SUBMIT)]
         uploader.run(selected, dry_run=True)
-        assert fake.upload_calls == 0
-        assert store.get(identifier)["status"] == "pending"
+        assert store.load(identifier).attempts == ()
 
 
-def test_successful_async_upload_persists_and_does_not_repeat(tmp_path: Path) -> None:
-    root, identifier = workspace(tmp_path)
-    fake = FakeClient(
-        UploadStatus(id_str="12", status="processing"),
-        [UploadStatus(id_str="12", activity_id=99, status="Your activity is ready.")],
-    )
-    with UploadStateStore(root / "migration-state.sqlite3") as store:
-        clock = FakeClock()
-        uploader = Uploader(root, store, fake, sleep=clock.sleep, clock=clock)
-        uploader.run(uploader.select(limit=1))
-        row = store.get(identifier)
-        assert row["status"] == "completed"
-        assert row["strava_upload_id"] == "12"
-        assert row["strava_activity_id"] == "99"
-    with UploadStateStore(root / "migration-state.sqlite3") as reopened:
-        uploader = Uploader(root, reopened, fake, sleep=lambda _: None)
-        assert uploader.select(limit=1) == []
-        assert reopened.get(identifier)["attempt_count"] == 1
+@pytest.mark.skip(
+    reason="SPEC-001 WP4/WP5: orchestration disabled by approved Sprint 10.3D sequencing"
+)
+def test_successful_async_upload_persists_and_does_not_repeat() -> None:
+    """Persist asynchronous completion and prevent a second POST on restart.
+
+    Historical implementation: d9b0027:tests/test_strava_uploader.py.
+    Restore/replace before the development guard is removed in WP8.
+    """
 
 
 def test_duplicate_and_permanent_states_are_not_reselected(tmp_path: Path) -> None:
     root, identifier = workspace(tmp_path)
-    fake = FakeClient(UploadStatus(id_str="12", error="duplicate of activity 99", status="error"))
     with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(root, store, fake, sleep=lambda _: None)
-        uploader.run(uploader.select(limit=1))
-        assert store.get(identifier)["status"] == "duplicate"
-        assert uploader.select(limit=1) == []
+        uploader = Uploader(root, store)
+        attempt = start_attempt(store, uploader, identifier)
+        store.record_evidence(
+            attempt,
+            ResponseEvidence(
+                upload_id="12",
+                duplicate_activity_id="99",
+                remote=Remote.DUPLICATE,
+                code=Code.DUPLICATE,
+            ),
+        )
+        assert not any(a.kind == Action.SUBMIT for a in uploader.select())
+        assert store.load(identifier).attempts[0].remote == Remote.DUPLICATE
 
 
 def test_processing_state_resumes_polling_without_post(tmp_path: Path) -> None:
+    """WP3 routes retained IDs to observation; actual resume scheduling belongs to WP5."""
     root, identifier = workspace(tmp_path)
-    fake = FakeClient(
-        UploadStatus(id_str="unused", status="processing"),
-        [UploadStatus(id_str="42", activity_id=100, status="ready")],
-    )
     with UploadStateStore(root / "migration-state.sqlite3") as store:
-        clock = FakeClock()
-        uploader = Uploader(root, store, fake, sleep=clock.sleep, clock=clock)
-        store.set_status(identifier, UploadState.PROCESSING, upload_id="42")
-        uploader.run(uploader.select(limit=1))
-        assert fake.upload_calls == 0
-        assert store.get(identifier)["status"] == "completed"
+        uploader = Uploader(root, store)
+        attempt = start_attempt(store, uploader, identifier)
+        store.record_evidence(attempt, ResponseEvidence(upload_id="42", remote=Remote.PROCESSING))
+        assert [(a.kind, a.upload_id) for a in uploader.select()] == [(Action.OBSERVE, "42")]
 
 
 @pytest.mark.parametrize("change", ["missing", "hash"])
 def test_local_fit_change_blocks_upload(tmp_path: Path, change: str) -> None:
+    """WP3 reset cannot clear an uncorrected artifact; fresh snapshot checks are WP4."""
     root, identifier = workspace(tmp_path)
-    fit = root / "fits" / "activity.fit"
+    fit = root / "fits/activity.fit"
     fit.unlink() if change == "missing" else fit.write_bytes(b"changed")
     with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(root, store)
-        with pytest.raises(ValidationError):
-            uploader.select(limit=1)
-        assert store.get(identifier)["status"] == "local_file_changed"
+        Uploader(root, store)
+        store.set_blocker(
+            identifier,
+            "activity",
+            Code.MISSING_FIT if change == "missing" else Code.FIT_HASH_MISMATCH,
+        )
+        assert all(a.kind != Action.SUBMIT for a in store.reset(identifier))
 
 
 def test_ineligible_manifest_entry_is_ignored(tmp_path: Path) -> None:
     root, _ = workspace(tmp_path, status="excluded_unresolved")
     with UploadStateStore(root / "migration-state.sqlite3") as store:
-        assert Uploader(root, store).select(limit=1) == []
+        assert all(a.kind != Action.SUBMIT for a in Uploader(root, store).select(limit=1))
 
 
 def test_unsupported_manifest_version_is_rejected(tmp_path: Path) -> None:
@@ -206,33 +177,30 @@ def test_manifest_change_is_detected_without_overwriting_history(tmp_path: Path)
     root, identifier = workspace(tmp_path)
     database = root / "migration-state.sqlite3"
     with UploadStateStore(database) as store:
-        Uploader(root, store)
-        store.set_status(identifier, UploadState.COMPLETED, activity_id="99")
+        uploader = Uploader(root, store)
+        store.record_evidence(
+            start_attempt(store, uploader, identifier),
+            ResponseEvidence(activity_id="99", remote=Remote.COMPLETED),
+        )
     path = root / "migration-manifest.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["activities"][0]["fit"]["sha256"] = "b" * 64
     path.write_text(json.dumps(payload), encoding="utf-8")
     with UploadStateStore(database) as store:
         Uploader(root, store)
-        row = store.get(identifier)
-        assert row["status"] == "local_file_changed"
-        assert row["strava_activity_id"] == "99"
+        record = store.load(identifier)
+        assert record.attempts[0].activity_id == "99"
+        assert record.attempts[0].remote == Remote.COMPLETED
+        assert any(b.active and b.code == Code.MANIFEST_CHANGED for b in record.blockers)
 
 
-def test_retry_is_bounded(tmp_path: Path) -> None:
-    root, identifier = workspace(tmp_path)
+@pytest.mark.skip(reason="SPEC-001 WP4: orchestration disabled by approved Sprint 10.3D sequencing")
+def test_retry_is_bounded() -> None:
+    """Replace historical three-POST 503 assertion with one POST, uncertainty, and zero POST after restart.
 
-    class FailingClient(FakeClient):
-        def upload(self, path: Path, external_id: str) -> UploadStatus:
-            self.upload_calls += 1
-            raise StravaAPIError("server", "temporary", retryable=True, status_code=503)
-
-    fake = FailingClient(UploadStatus(id_str="1", status="processing"))
-    with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(root, store, fake, sleep=lambda _: None, max_retries=3)
-        uploader.run(uploader.select(limit=1))
-        assert fake.upload_calls == 3
-        assert store.get(identifier)["status"] == "retryable_failure"
+    Historical implementation: d9b0027:tests/test_strava_uploader.py.
+    Restore/replace before the development guard is removed in WP8.
+    """
 
 
 def test_oauth_url_token_exchange_and_refresh(tmp_path: Path) -> None:
@@ -341,109 +309,69 @@ def test_rate_limit_headers_and_exhaustion() -> None:
     assert rate is not None and rate.exhausted
 
 
-@pytest.mark.parametrize(
-    ("status", "category", "retryable"),
-    [
-        (401, "authorization", False),
-        (403, "authorization", False),
-        (429, "rate_limit", True),
-        (503, "server", True),
-    ],
-)
-def test_http_failures_are_classified(
-    tmp_path: Path, status: int, category: str, retryable: bool
-) -> None:
-    token_store = TokenStore(tmp_path / "tokens.json")
-    token_store.save(
-        TokenSet(
-            access_token="access",
-            refresh_token="refresh",
-            expires_at=9_999_999_999,
-            scope="activity:write",
-        )
-    )
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status, json={"message": "failure"})
-
+@pytest.mark.parametrize("status", [401, 403, 429, 503])
+def test_http_failures_are_classified(tmp_path: Path, status: int) -> None:
     client = StravaClient(
-        "1", "secret", token_store, httpx.Client(transport=httpx.MockTransport(handler))
+        "1",
+        "SECRET_TEST_MARKER",
+        TokenStore(tmp_path / "tokens.json"),
+        httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(status))),
     )
-    fit = tmp_path / "activity.fit"
-    fit.write_bytes(b"fit")
-    with pytest.raises(StravaAPIError) as caught:
-        client.upload(fit, "source")
-    assert caught.value.category == category
-    assert caught.value.retryable is retryable
-    assert "secret" not in str(caught.value)
+    artifact = VerifiedArtifact(BytesIO(b"fit"), "a.fit", "a" * 64, 3, "source", 0)
+    with pytest.raises(RequestFailure) as caught:
+        client.upload(artifact, "source", PreparedAccess("access", 9_999_999_999))
+    assert caught.value.phase == FailurePhase.POSSIBLY_SENT
+    assert caught.value.status_code == status
+    assert not hasattr(caught.value, "retryable")
+    assert "SECRET_TEST_MARKER" not in str(caught.value)
 
 
 def test_malformed_upload_response_is_rejected(tmp_path: Path) -> None:
-    token_store = TokenStore(tmp_path / "tokens.json")
-    token_store.save(
-        TokenSet(
-            access_token="access",
-            refresh_token="refresh",
-            expires_at=9_999_999_999,
-            scope="activity:write",
-        )
-    )
     client = StravaClient(
         "1",
         "secret",
-        token_store,
+        TokenStore(tmp_path / "tokens.json"),
         httpx.Client(
             transport=httpx.MockTransport(lambda request: httpx.Response(201, content=b"bad"))
         ),
     )
-    fit = tmp_path / "activity.fit"
-    fit.write_bytes(b"fit")
-    with pytest.raises(StravaAPIError, match="Malformed"):
-        client.upload(fit, "source")
+    artifact = VerifiedArtifact(BytesIO(b"fit"), "a.fit", "a" * 64, 3, "source", 0)
+    evidence = client.upload(artifact, "source", PreparedAccess("access", 9_999_999_999))
+    assert evidence.code == Code.MALFORMED_RESPONSE and evidence.remote is None
 
 
-def test_uncertain_network_outcome_is_not_retried(tmp_path: Path) -> None:
-    root, identifier = workspace(tmp_path)
+@pytest.mark.skip(reason="SPEC-001 WP4: orchestration disabled by approved Sprint 10.3D sequencing")
+def test_uncertain_network_outcome_is_not_retried() -> None:
+    """One ambiguous POST must persist uncertainty and prevent resend.
 
-    class UncertainClient(FakeClient):
-        def upload(self, path: Path, external_id: str) -> UploadStatus:
-            self.upload_calls += 1
-            raise StravaAPIError("uncertain", "outcome unknown")
-
-    fake = UncertainClient(UploadStatus(id_str="1", status="processing"))
-    with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(root, store, fake, sleep=lambda _: None)
-        uploader.run(uploader.select(limit=1))
-        assert fake.upload_calls == 1
-        assert store.get(identifier)["status"] == "uncertain"
+    Historical implementation: d9b0027:tests/test_strava_uploader.py.
+    Restore/replace before the development guard is removed in WP8.
+    """
 
 
-def test_rate_limit_stops_batch_without_retrying(tmp_path: Path) -> None:
-    root, identifier = workspace(tmp_path)
+@pytest.mark.skip(
+    reason="SPEC-001 WP4/WP5: orchestration disabled by approved Sprint 10.3D sequencing"
+)
+def test_rate_limit_stops_batch_without_retrying() -> None:
+    """429 stops scheduling and retains operation-specific evidence.
 
-    class LimitedClient(FakeClient):
-        def upload(self, path: Path, external_id: str) -> UploadStatus:
-            self.upload_calls += 1
-            raise StravaAPIError("rate_limit", "limit", retryable=True, status_code=429)
-
-    fake = LimitedClient(UploadStatus(id_str="1", status="processing"))
-    with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(root, store, fake, sleep=lambda _: None)
-        uploader.run(uploader.select(limit=1))
-        assert fake.upload_calls == 1
-        assert store.get(identifier)["status"] == "retryable_failure"
+    Historical implementation: d9b0027:tests/test_strava_uploader.py.
+    Restore/replace before the development guard is removed in WP8.
+    """
 
 
 def test_reset_protects_completed_state(tmp_path: Path) -> None:
     root, identifier = workspace(tmp_path)
     with UploadStateStore(root / "migration-state.sqlite3") as store:
         uploader = Uploader(root, store)
-        store.set_status(identifier, UploadState.COMPLETED, activity_id="99")
-        with pytest.raises(ValidationError, match="requires --force"):
-            store.reset(identifier)
-        store.reset(identifier, force=True)
-        assert store.get(identifier)["status"] == "pending"
-        assert uploader.select(limit=1)
+        store.record_evidence(
+            start_attempt(store, uploader, identifier),
+            ResponseEvidence(activity_id="99", remote=Remote.COMPLETED),
+        )
+        before = store.load(identifier).attempts
+        assert store.reset(identifier) == store.reset(identifier, force=True)
+        assert store.load(identifier).attempts == before
+        assert not any(a.kind == Action.SUBMIT for a in uploader.select())
 
 
 def test_cli_requires_explicit_upload_selector(tmp_path: Path) -> None:
@@ -453,54 +381,24 @@ def test_cli_requires_explicit_upload_selector(tmp_path: Path) -> None:
     assert "exactly one" in result.output
 
 
-def test_bounded_pipeline_has_multiple_processing_uploads(tmp_path: Path) -> None:
-    root, _ = multi_workspace(tmp_path, 5)
+@pytest.mark.skip(reason="SPEC-001 WP5: orchestration disabled by approved Sprint 10.3D sequencing")
+def test_bounded_pipeline_has_multiple_processing_uploads() -> None:
+    """Bound remote jobs without discarding identities or exceeding new-submission capacity.
 
-    class PipelineClient(FakeClient):
-        def __init__(self) -> None:
-            super().__init__(UploadStatus(id_str="unused", status="processing"))
-            self.active = 0
-            self.maximum_active = 0
-
-        def upload(self, path: Path, external_id: str) -> UploadStatus:
-            self.upload_calls += 1
-            self.active += 1
-            self.maximum_active = max(self.maximum_active, self.active)
-            return UploadStatus(id_str=str(self.upload_calls), status="processing")
-
-        def get_upload(self, upload_id: str) -> UploadStatus:
-            self.poll_calls += 1
-            self.active -= 1
-            return UploadStatus(id_str=upload_id, activity_id=100 + self.poll_calls, status="ready")
-
-    fake = PipelineClient()
-    clock = FakeClock()
-    events: list[str] = []
-    with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(
-            root,
-            store,
-            fake,
-            sleep=clock.sleep,
-            clock=clock,
-            max_in_flight=2,
-            on_progress=lambda _activity, event: events.append(event),
-        )
-        uploader.run(uploader.select())
-        assert fake.maximum_active == 2
-        assert fake.upload_calls == 5
-        assert store.summary()["completed"] == 5
-        assert events.count("uploading") == 5
-        assert events.count("completed") == 5
+    Historical implementation: d9b0027:tests/test_strava_uploader.py.
+    Restore/replace before the development guard is removed in WP8.
+    """
 
 
 def test_limit_counts_new_uploads_but_resumes_processing(tmp_path: Path) -> None:
     root, identifiers = multi_workspace(tmp_path, 3)
     with UploadStateStore(root / "migration-state.sqlite3") as store:
         uploader = Uploader(root, store)
-        store.set_status(identifiers[0], UploadState.PROCESSING, upload_id="42")
-        selected = uploader.select(limit=1)
-        assert [item.stable_activity_id for item in selected] == identifiers[:2]
+        store.record_evidence(
+            start_attempt(store, uploader, identifiers[0]),
+            ResponseEvidence(upload_id="42", remote=Remote.PROCESSING),
+        )
+        assert [a.stable_activity_id for a in uploader.select(limit=1)] == identifiers[:2]
 
 
 def test_short_rate_limit_waits_to_natural_window() -> None:
@@ -536,21 +434,13 @@ def test_daily_rate_limit_stops_without_sleeping() -> None:
     assert sleeps == []
 
 
-def test_daily_rate_limit_stops_uploader_with_pending_state(tmp_path: Path) -> None:
-    root, identifier = workspace(tmp_path)
-    fake = FakeClient(UploadStatus(id_str="1", status="processing"))
-    fake.rate_limit = RateLimit(short_limit=400, daily_limit=4000, short_usage=1, daily_usage=3990)
-    policy = RateLimitPolicy(
-        reserve=10,
-        clock=lambda: datetime(2025, 1, 1, 10, tzinfo=UTC),
-        sleep=lambda _seconds: pytest.fail("daily limit must not sleep"),
-    )
-    with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(root, store, fake, rate_policy=policy)
-        uploader.run(uploader.select(limit=1))
-        assert fake.upload_calls == 0
-        assert store.get(identifier)["status"] == "pending"
-        assert "midnight UTC" in str(uploader.last_stop_reason)
+@pytest.mark.skip(reason="SPEC-001 WP4: orchestration disabled by approved Sprint 10.3D sequencing")
+def test_daily_rate_limit_stops_uploader_with_pending_state() -> None:
+    """Daily reserve prevents intent and POST while preserving positive provenance.
+
+    Historical implementation: d9b0027:tests/test_strava_uploader.py.
+    Restore/replace before the development guard is removed in WP8.
+    """
 
 
 def test_read_rate_limit_applies_only_to_polling_requests() -> None:
@@ -594,41 +484,56 @@ def test_progress_counts_only_completed_and_duplicate_as_resolved(tmp_path: Path
     root, identifiers = multi_workspace(tmp_path, 6)
     with UploadStateStore(root / "migration-state.sqlite3") as store:
         uploader = Uploader(root, store)
-        store.set_status(identifiers[0], UploadState.COMPLETED)
-        store.set_status(identifiers[1], UploadState.DUPLICATE)
-        store.set_status(identifiers[2], UploadState.PROCESSING, upload_id="3")
-        store.set_status(identifiers[3], UploadState.RETRYABLE_FAILURE)
-        store.set_status(identifiers[4], UploadState.UNCERTAIN)
-        store.set_status(identifiers[5], UploadState.PERMANENT_FAILURE)
+        outcomes = [
+            ResponseEvidence(activity_id="99", remote=Remote.COMPLETED),
+            ResponseEvidence(upload_id="2", duplicate_activity_id="100", remote=Remote.DUPLICATE),
+            ResponseEvidence(upload_id="3", remote=Remote.PROCESSING),
+        ]
+        for identifier, evidence in zip(identifiers[:3], outcomes, strict=True):
+            store.record_evidence(start_attempt(store, uploader, identifier), evidence)
+        for identifier in identifiers[3:]:
+            store.record_uncertain(start_attempt(store, uploader, identifier))
         result = snapshot(uploader.manifest, store.summary())
-    assert result.resolved == 2
+    assert result.resolved == 2 and result.remaining == 4
     assert result.completed == 1 and result.duplicate == 1
-    assert result.remaining == 4
-    assert result.needs_attention == 2
+    assert result.needs_attention == 3
     assert result.percent == pytest.approx(100 / 3)
 
 
-def test_keyboard_interrupt_preserves_resumable_state(tmp_path: Path) -> None:
-    root, identifier = workspace(tmp_path)
+@pytest.mark.skip(
+    reason="SPEC-001 WP4/WP5: orchestration disabled by approved Sprint 10.3D sequencing"
+)
+def test_keyboard_interrupt_preserves_resumable_state() -> None:
+    """Interrupt handling retains intent, IDs and terminal facts at each request boundary.
 
-    class InterruptedClient(FakeClient):
-        def upload(self, path: Path, external_id: str) -> UploadStatus:
-            raise KeyboardInterrupt
-
-    fake = InterruptedClient(UploadStatus(id_str="1", status="processing"))
-    with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(root, store, fake)
-        uploader.run(uploader.select(limit=1))
-        assert "interrupted" in str(uploader.last_stop_reason)
-        assert store.get(identifier)["status"] == "uncertain"
+    Historical implementation: d9b0027:tests/test_strava_uploader.py.
+    Restore/replace before the development guard is removed in WP8.
+    """
 
 
 def test_status_is_local_and_reports_progress(tmp_path: Path) -> None:
     root, identifier = workspace(tmp_path)
     with UploadStateStore(root / "migration-state.sqlite3") as store:
-        Uploader(root, store)
-        store.set_status(identifier, UploadState.COMPLETED)
+        uploader = Uploader(root, store)
+        store.record_evidence(
+            start_attempt(store, uploader, identifier),
+            ResponseEvidence(activity_id="99", remote=Remote.COMPLETED),
+        )
     result = CliRunner().invoke(app, ["strava", "status", str(root), "--details"])
     assert result.exit_code == 0
-    assert "1 / 1 (100.00%)" in result.output
-    assert "pending=0" in result.output
+    assert "1 / 1 (100.00%)" in result.output and "pending=0" in result.output
+
+
+def start_attempt(store: UploadStateStore, uploader: Uploader, identifier: str) -> int:
+    activity = next(a for a in uploader.manifest.activities if a.stable_activity_id == identifier)
+    record = store.load(identifier)
+    assert activity.fit.sha256 is not None
+    artifact = VerifiedArtifact(
+        BytesIO(b"synthetic"),
+        "activity.fit",
+        activity.fit.sha256,
+        activity.fit.size_bytes or 0,
+        identifier,
+        record.revision,
+    )
+    return store.begin_submission(identifier, record.revision, artifact, True).attempt_id

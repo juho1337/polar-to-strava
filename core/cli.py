@@ -1,13 +1,11 @@
 """Command line interface."""
 
-import time
 from datetime import date
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
-from rich.live import Live
 
 from config.loader import load_config
 from core.audit_progress import AuditProgressRenderer
@@ -17,9 +15,8 @@ from polar import PolarImporter
 from services import ActivityValidator, ConversionService
 from services.audit import MigrationAudit
 from strava.client import StravaClient, TokenStore, authorization_url, credentials
-from strava.models import ManifestActivity, MigrationManifest
-from strava.progress import print_status, progress_table, snapshot
-from strava.rate_limit import RateLimitPolicy, RateWait
+from strava.models import MigrationManifest
+from strava.progress import print_status, snapshot
 from strava.state import UploadStateStore
 from strava.uploader import Uploader
 
@@ -30,7 +27,10 @@ console = Console()
 
 
 def _state_store(workspace: Path) -> UploadStateStore:
-    return UploadStateStore(workspace / "migration-state.sqlite3")
+    store = UploadStateStore(workspace / "migration-state.sqlite3")
+    if store.backup_path is not None:
+        console.print("Private schema-1 backup: " + str(store.backup_path), markup=False)
+    return store
 
 
 @strava_app.command("auth")
@@ -71,79 +71,19 @@ def strava_upload(
         parsed_to = date.fromisoformat(to_date) if to_date else None
     except ValueError as error:
         raise typer.BadParameter("Dates must use YYYY-MM-DD") from error
+    if not dry_run:
+        console.print("recovery integration incomplete")
+        raise typer.Exit(code=1)
     try:
         with _state_store(workspace) as store:
-            client = None
-            if not dry_run:
-                client_id, client_secret = credentials()
-                client = StravaClient(
-                    client_id, client_secret, TokenStore(workspace / ".strava-tokens.json")
-                )
-            uploader = Uploader(workspace, store, client)
+            uploader = Uploader(workspace, store)
             selected = uploader.select(
-                limit=limit,
-                activity_id=activity_id,
-                from_date=parsed_from,
-                to_date=parsed_to,
+                limit=limit, activity_id=activity_id, from_date=parsed_from, to_date=parsed_to
             )
-            initial = snapshot(uploader.manifest, store.summary())
-            console.print(
-                f"Manifest {len(uploader.manifest.activities)}; eligible {initial.eligible}; "
-                f"selected {len(selected)}."
-            )
-            if dry_run:
-                for index, item in enumerate(selected, 1):
-                    assert item.time.resolved_utc_start is not None
-                    console.print(
-                        f"[{index}/{len(selected)}] {item.time.resolved_utc_start.date()} "
-                        f"{item.sport.domain} would_upload"
-                    )
-            else:
-                live: Live | None = None
-
-                def rate_wait(wait: RateWait) -> None:
-                    console.print(
-                        f"API safety reserve reached; waiting until {wait.resume_at.isoformat()}."
-                    )
-
-                def update(activity: ManifestActivity | None, event: str) -> None:
-                    current = None
-                    if activity is not None:
-                        current = f"{activity.sport.domain} - {event}"
-                    current_progress = snapshot(uploader.manifest, store.summary())
-                    if live is not None:
-                        live.update(
-                            progress_table(
-                                current_progress,
-                                run_done=current_progress.resolved - initial.resolved,
-                                run_total=len(selected),
-                                rate=client.rate_limit if client else None,
-                                current=current,
-                            )
-                        )
-
-                policy = RateLimitPolicy(
-                    reserve=rate_limit_reserve, sleep=time.sleep, on_wait=rate_wait
-                )
-                uploader.max_in_flight = max_in_flight
-                uploader.rate_policy = policy
-                uploader.on_progress = update
-                if console.is_terminal:
-                    live = Live(
-                        progress_table(initial, run_done=0, run_total=len(selected)),
-                        console=console,
-                        refresh_per_second=4,
-                    )
-                    with live:
-                        uploader.run(selected)
-                else:
-                    uploader.run(selected)
-                final = snapshot(uploader.manifest, store.summary())
-                if not console.is_terminal:
-                    print_status(console, final, details=True)
-                if uploader.last_stop_reason:
-                    console.print(f"Migration paused safely: {uploader.last_stop_reason}")
-                    console.print(f'Resume with: python main.py strava upload "{workspace}" --all')
+            for decision in selected:
+                console.print(f"{decision.stable_activity_id}: {decision.kind.value}")
+                for reason in decision.reasons:
+                    console.print(reason.value)
     except PolarToStravaError as error:
         console.print(f"[red]Error:[/red] {error}")
         raise typer.Exit(code=1) from error
@@ -172,8 +112,10 @@ def strava_reset(
     manifest, fingerprint = MigrationManifest.load(workspace)
     with _state_store(workspace) as store:
         store.reconcile(manifest, fingerprint)
-        store.reset(activity_id, force)
-    console.print("Local upload state reset.")
+        actions = store.reset(activity_id, force)
+    if force:
+        console.print("--force is deprecated and cannot override recovery protection.")
+    console.print("Safest local action: " + ", ".join(a.kind.value for a in actions))
 
 
 @app.command()

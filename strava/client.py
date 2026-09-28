@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 import secrets
 import time
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -13,7 +14,10 @@ import httpx
 from pydantic import ValidationError
 
 from core.errors import ConfigurationError
-from strava.models import RateLimit, StravaTokenResponse, TokenSet, UploadStatus
+from strava.artifacts import VerifiedArtifact
+from strava.models import RateLimit, StravaTokenResponse, TokenSet
+from strava.recovery import Code, Operation, ResponseEvidence, positive_id
+from strava.responses import parse_upload_response
 
 AUTH_URL = "https://www.strava.com/oauth/authorize"
 TOKEN_URL = "https://www.strava.com/oauth/token"
@@ -21,19 +25,31 @@ API_URL = "https://www.strava.com/api/v3"
 REQUIRED_SCOPE = "activity:write"
 
 
-class StravaAPIError(Exception):
+class FailurePhase(StrEnum):
+    NOT_SENT = "not_sent"
+    POSSIBLY_SENT = "possibly_sent"
+    OBSERVATION = "observation"
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAccess:
+    token: str = field(repr=False)
+    expires_at: int
+
+
+class RequestFailure(Exception):
     def __init__(
         self,
-        category: str,
-        message: str,
+        operation: Operation,
+        phase: FailurePhase,
+        code: Code,
         *,
-        retryable: bool = False,
         status_code: int | None = None,
+        evidence: ResponseEvidence | None = None,
     ) -> None:
-        super().__init__(message)
-        self.category = category
-        self.retryable = retryable
-        self.status_code = status_code
+        super().__init__(Code(code).value)
+        self.operation, self.phase, self.code = operation, phase, Code(code)
+        self.status_code, self.evidence = status_code, evidence or ResponseEvidence()
 
 
 class TokenStore:
@@ -143,65 +159,115 @@ class StravaClient:
             self.token_store.save(tokens)
         return tokens
 
-    def upload(self, path: Path, external_id: str) -> UploadStatus:
-        self._check_budget()
-        token = self.access_token()
+    def prepare_access(self) -> PreparedAccess:
         try:
-            with path.open("rb") as stream:
-                response = self.http.post(
-                    f"{API_URL}/uploads",
-                    headers={"Authorization": f"Bearer {token}"},
-                    data={"data_type": "fit", "external_id": external_id},
-                    files={"file": (path.name, stream, "application/octet-stream")},
-                )
-        except (httpx.TimeoutException, httpx.NetworkError) as error:
-            raise StravaAPIError(
-                "uncertain", "Upload outcome is unknown after network failure"
-            ) from error
-        return self._upload_response(response, expected=201)
+            token = self.access_token()
+            return PreparedAccess(token, self.token_store.load().expires_at)
+        except (ConfigurationError, OSError):
+            raise RequestFailure(
+                Operation.SUBMIT, FailurePhase.NOT_SENT, Code.AUTHORIZATION
+            ) from None
 
-    def get_upload(self, upload_id: str) -> UploadStatus:
-        self._check_budget()
-        token = self.access_token()
+    def _ready(
+        self, access: PreparedAccess, operation: Operation, upload_id: str | None = None
+    ) -> None:
+        code = None
+        if access.expires_at <= int(time.time()) or not access.token:
+            code = Code.AUTHORIZATION
+        if self.rate_limit is not None and self.rate_limit.exhausted:
+            code = Code.RATE_LIMIT
+        if code:
+            raise RequestFailure(
+                operation,
+                (
+                    FailurePhase.NOT_SENT
+                    if operation == Operation.SUBMIT
+                    else FailurePhase.OBSERVATION
+                ),
+                code,
+                evidence=ResponseEvidence(upload_id=upload_id, code=code),
+            )
+
+    def upload(
+        self, artifact: VerifiedArtifact, external_id: str, access: PreparedAccess
+    ) -> ResponseEvidence:
+        self._ready(access, Operation.SUBMIT)
+        if artifact.stream.closed:
+            raise RequestFailure(Operation.SUBMIT, FailurePhase.NOT_SENT, Code.INVALID_ARTIFACT)
+        try:
+            response = self.http.post(
+                f"{API_URL}/uploads",
+                headers={"Authorization": f"Bearer {access.token}"},
+                data={"data_type": "fit", "external_id": external_id},
+                files={"file": (artifact.filename, artifact.stream, "application/octet-stream")},
+            )
+        except (httpx.HTTPError, OSError, ValueError):
+            raise RequestFailure(
+                Operation.SUBMIT, FailurePhase.POSSIBLY_SENT, Code.NETWORK
+            ) from None
+        return self._upload_response(response, Operation.SUBMIT)
+
+    def get_upload(self, upload_id: str, access: PreparedAccess) -> ResponseEvidence:
+        if positive_id(upload_id) != upload_id:
+            raise RequestFailure(
+                Operation.OBSERVE, FailurePhase.OBSERVATION, Code.MISSING_UPLOAD_ID
+            )
+        self._ready(access, Operation.OBSERVE, upload_id)
         try:
             response = self.http.get(
                 f"{API_URL}/uploads/{upload_id}",
-                headers={"Authorization": f"Bearer {token}"},
+                headers={"Authorization": f"Bearer {access.token}"},
             )
-        except (httpx.TimeoutException, httpx.NetworkError) as error:
-            raise StravaAPIError("network", "Temporary network failure", retryable=True) from error
-        return self._upload_response(response, expected=200)
+        except httpx.HTTPError:
+            raise RequestFailure(
+                Operation.OBSERVE,
+                FailurePhase.OBSERVATION,
+                Code.NETWORK,
+                evidence=ResponseEvidence(upload_id=upload_id, code=Code.NETWORK),
+            ) from None
+        return self._upload_response(response, Operation.OBSERVE, upload_id)
 
-    def _upload_response(self, response: httpx.Response, expected: int) -> UploadStatus:
+    def _upload_response(
+        self, response: httpx.Response, operation: Operation, expected_upload_id: str | None = None
+    ) -> ResponseEvidence:
         self._capture_rate_limit(response)
-        if response.status_code == 429:
-            raise StravaAPIError(
-                "rate_limit", "Strava rate limit exhausted", retryable=True, status_code=429
-            )
-        if response.status_code in {401, 403}:
-            raise StravaAPIError(
-                "authorization", "Strava authorization failed", status_code=response.status_code
-            )
-        if response.status_code >= 500:
-            raise StravaAPIError(
-                "server",
-                "Temporary Strava server failure",
-                retryable=True,
-                status_code=response.status_code,
-            )
-        if response.status_code != expected:
-            raise StravaAPIError(
-                "request", "Strava rejected the request", status_code=response.status_code
-            )
         try:
-            result = UploadStatus.model_validate(response.json())
-        except (json.JSONDecodeError, ValueError, ValidationError) as error:
-            raise StravaAPIError("malformed_response", "Malformed Strava response") from error
-        return result
-
-    def _check_budget(self) -> None:
-        if self.rate_limit is not None and self.rate_limit.exhausted:
-            raise StravaAPIError("rate_limit", "Strava rate limit budget is exhausted")
+            payload = response.json()
+        except ValueError:
+            payload = None
+        evidence = replace(
+            parse_upload_response(
+                payload, operation=operation, expected_upload_id=expected_upload_id
+            ),
+            http_status=response.status_code,
+        )
+        expected = 201 if operation == Operation.SUBMIT else 200
+        if response.status_code != expected:
+            code = (
+                Code.RATE_LIMIT
+                if response.status_code == 429
+                else (
+                    Code.AUTHORIZATION
+                    if response.status_code in {401, 403}
+                    else Code.SERVER if response.status_code >= 500 else Code.REQUEST
+                )
+            )
+            phase = (
+                FailurePhase.POSSIBLY_SENT
+                if operation == Operation.SUBMIT
+                else FailurePhase.OBSERVATION
+            )
+            # Unexpected HTTP cannot establish a terminal result or non-submission.
+            evidence = ResponseEvidence(
+                upload_id=evidence.upload_id,
+                conflicting_ids=evidence.conflicting_ids,
+                code=Code.ID_CONFLICT if evidence.code == Code.ID_CONFLICT else code,
+                http_status=response.status_code,
+            )
+            raise RequestFailure(
+                operation, phase, code, status_code=response.status_code, evidence=evidence
+            )
+        return evidence
 
     def _capture_rate_limit(self, response: httpx.Response) -> None:
         parsed = parse_rate_limit(response.headers)
