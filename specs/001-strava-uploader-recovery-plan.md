@@ -7,7 +7,7 @@ Specification baseline: `49eded371fd25b01c3b854d537b296b01f4045bb`
 Created: 2026-09-27
 Human approval date: 2026-09-28
 Human approval: Requesting user explicitly approved the implementation choices in plan commit c65c32b8890824567d4542d0062b420f14de5d8c.
-Execution: WP1–WP3 implemented and verified (2026-09-28); WP4–WP8 incomplete; execution guards active
+Execution: WP1–WP6 implemented and synthetically verified (2026-09-28); WP7–WP8 incomplete; both execution guards active
 
 ## Approved execution sequencing clarification (2026-09-28)
 
@@ -629,16 +629,16 @@ call in the prescribed sequence. Files: artifacts.py; new test_strava_artifacts.
 uploader.py/client.py protocol; test_strava_uploader.py. ACs: AC-03, AC-04, AC-07, AC-08,
 AC-09, AC-11, AC-12, AC-17. Depends on WP1–WP3.
 
-- [ ] Implement context-managed private snapshot and authoritative SHA-256 check.
-- [ ] Replace submission retry loop with ordered preparation/intent/one-POST path.
-- [ ] Record narrowly proven not_sent versus uncertain, and persist response evidence
+- [x] Implement context-managed private snapshot and authoritative SHA-256 check.
+- [x] Replace submission retry loop with ordered preparation/intent/one-POST path.
+- [x] Record narrowly proven not_sent versus uncertain, and persist response evidence
   before callbacks; preserve stronger evidence on interrupt/error.
-- [ ] Add `test_hash_rechecked_after_rate_wait`, `test_snapshot_bytes_are_sent`,
+- [x] Add `test_hash_rechecked_after_rate_wait`, `test_snapshot_bytes_are_sent`,
   `test_snapshot_mutation_during_copy_blocks_post`, `test_oauth_prepares_before_validation`,
   `test_intent_commit_failure_prevents_post`, `test_response_commit_failure_blocks_restart`,
   `test_preflight_repair_allows_one_submission` and `test_503_does_not_resubmit`.
   Assert order from fake clock/store/transport trace and body hash, not just statuses.
-- [ ] Run `python -m pytest tests/test_strava_artifacts.py tests/test_strava_uploader.py -q`.
+- [x] Run `python -m pytest tests/test_strava_artifacts.py tests/test_strava_uploader.py -q`.
 
 Risk: hidden wait/refresh/path-open inside transport; completion requires every POST
 call site to use the committed attempt and same verified stream, with no bypass.
@@ -649,16 +649,16 @@ Objective: recover known uploads with GET only, retaining remote capacity/eviden
 Files: uploader.py, client.py, rate_limit.py only if adapters require; uploader/recovery
 tests. ACs: AC-01, AC-02, AC-08, AC-10, AC-11, AC-12, AC-18. Depends on WP1–WP4.
 
-- [ ] Schedule submit and observe decisions separately; ProcessingJob no longer
+- [x] Schedule submit and observe decisions separately; ProcessingJob no longer
   requires manifest activity; restore all known IDs at lower configured capacity.
-- [ ] Implement GET budget/backoff/deferral and scoped access/retrieval blockers.
-- [ ] Preserve IDs at all rate/interrupt exits; stop safely on persistence failure.
-- [ ] Add `test_poll_failure_restart_get_only`, `test_poll_budget_restart_get_only`,
+- [x] Implement GET budget/backoff/deferral and scoped access/retrieval blockers.
+- [x] Preserve IDs at all rate/interrupt exits; stop safely on persistence failure.
+- [x] Add `test_poll_failure_restart_get_only`, `test_poll_budget_restart_get_only`,
   `test_get_429_stops_with_id`, `test_deferred_job_does_not_free_remote_capacity`,
   `test_lower_capacity_restores_all_ids`, `test_mixed_batch_failure_isolated` and
   `test_interrupt_at_each_request_boundary`. Assert zero extra POSTs, expected GET ID,
   budget limits, fake-clock backoff and unchanged unrelated activity evidence.
-- [ ] Run `python -m pytest tests/test_strava_uploader.py tests/test_strava_recovery.py -q`.
+- [x] Run `python -m pytest tests/test_strava_uploader.py tests/test_strava_recovery.py -q`.
 
 Risk: capacity starvation/spinning on deferred remote work; completion requires a
 bounded run exit with an actionable resume/review reason and no fallback submission.
@@ -669,17 +669,17 @@ Objective: verify the composed contract across reopened stores and process loss.
 Files: new state/recovery/response tests and existing uploader tests. ACs: AC-01
 through AC-15, AC-17, AC-18. Depends on WP1–WP5.
 
-- [ ] Parameterize all eight crash boundaries with injected exceptions and reopened
+- [x] Parameterize all eight crash boundaries with injected exceptions and reopened
   stores; include caught Ctrl+C, ordinary exception and simulated abrupt exit.
-- [ ] Add subprocess tests using synthetic paths and a fake transport barrier for
+- [x] Add subprocess tests using synthetic paths and a fake transport barrier for
   kill after intent, after saved ID and during migration; no real API or credentials.
-- [ ] Test all legacy rows through upgrade plus actual new scheduler operation;
+- [x] Test all legacy rows through upgrade plus actual new scheduler operation;
   inspect sent POST/GET and retained blockers/IDs after reset/reconcile/restart.
-- [ ] Add `test_backup_not_restored_after_remote_effect`,
+- [x] Add `test_backup_not_restored_after_remote_effect`,
   `test_upgrade_exception_after_commit_keeps_v2`, `test_old_reader_refuses_v2`,
   `test_orphan_get_with_missing_fit`, `test_known_id_with_unknown_extra_attempt` and
   `test_callback_failure_preserves_terminal_result`.
-- [ ] Run all Strava-focused modules; require every crash/legacy row to have explicit
+- [x] Run all Strava-focused modules; require every crash/legacy row to have explicit
   evidence assertions and safe next-network-action assertions, not only final labels.
 
 Risk: simulated faults do not prove hardware power-loss durability. Record that
@@ -882,8 +882,8 @@ This planning sprint changes only this plan, leaves the approved spec untouched,
 runs the repository-required checks plus link/path/reference/privacy checks. Results
 are recorded in the delivery report, not as evidence that the future behavior exists.
 
-Next SDD action: human review of the WP1–WP3 foundation. WP4–WP6 require separate
-authorization; keep both development guards active and do not merge or release.
+Next SDD action: human review of WP4–WP6, then separately authorize WP7–WP8.
+Keep both development guards active and do not merge or release.
 
 
 ## Sprint 10.3D execution evidence (2026-09-28)
@@ -948,3 +948,191 @@ SPEC-001/AC-01–AC-18, dependencies, manifest/domain schemas and approved plan 
 are unchanged. The only plan changes are the explicitly approved sequencing note,
 WP1–WP3 checkmarks and execution/lifecycle evidence. No new behavioral decision.
 The next step is human review; do not automatically proceed to WP4.
+
+## Sprint 10.3E execution evidence (2026-09-28)
+
+WP4–WP6 are complete for the authorized internal, synthetic implementation slice.
+SPEC-001 and this plan remain Approved; overall implementation and final compliance
+are incomplete. WP7–WP8 remain unchecked. Both CLI and production `Uploader.run`
+guards remain unconditional, with no force, environment or test-mode bypass.
+
+Implementation commits on `spec-001-foundation`:
+
+- `2c9ff22`: verified private snapshot and single-POST orchestration (WP4).
+- `8dd5c42`: bounded synchronous observation scheduler (WP5).
+- `d99b12b7223f1b0a69f0bf5099f6ca968ea212c8`: composed crash/migration verification
+  and review fixes (WP6).
+
+### Implemented behavior and boundaries
+
+`verified_snapshot` streams source bytes in bounded chunks into a context-managed
+`TemporaryFile` outside the workspace, hashes those copied bytes, checks authoritative
+SHA-256 and rewinds the same stream. Size is supplemental. Source changes after copy
+cannot change the uploaded snapshot. Normal exit/error closes the temporary stream;
+abrupt process termination is not a claim of secure erasure or universal OS cleanup.
+No FIT parsing/generation, manifest schema or dependency changes were made.
+
+The internal `_RecoveryRunner` has mandatory injected transport/rate/clock dependencies
+and is not composed by either production execution boundary. Tests exercise this
+internal implementation with synthetic workspaces and fake clients/HTTPX MockTransport.
+This separation implements the approved guarded sequence; it is not a production
+test-mode switch. Final CLI/event rendering remains WP7.
+
+POST sequence: access preparation and rate waits; current manifest reconciliation;
+contained source path; private copy/hash; current record and central permission;
+transactional revision/permission check and committed intent; one client upload;
+durable response evidence; callbacks/observation. An expired snapshot is closed before
+restarting preparation and taking a fresh snapshot. No fallible callback intervenes
+between committed intent and transport. No generic upload retry loop remains.
+
+503, timeout, ambiguous transport and malformed no-ID responses cannot authorize
+resubmission. Only a narrowly typed, noncontradictory pre-transport refusal permits
+`not_submitted`; HTTP status, IDs or remote evidence contradict that proof. Response
+persistence failure propagates and leaves the prior intent barrier. Ctrl+C preserves
+intent, known IDs and stronger committed outcomes; callbacks never own safety state.
+
+`ProcessingJob` holds stable activity/attempt/upload IDs, not a manifest activity.
+Restored observations are immediately due under rate policy; new uploads first poll
+after default two seconds (minimum one). Intervals double to thirty seconds. Each run
+resets the default sixty-GET budget and three-consecutive-transient-failure budget;
+pending success resets the latter. Deferred jobs retain capacity; all selected known
+jobs restore even at lower capacity. No-progress capacity exhaustion exits without
+spinning. 429 stops the batch; daily/read reserve stops before requests; scoped
+authorization/retrieval conflicts review. Processing failure remains review-only.
+Missing/changed/ineligible/orphan artifacts do not gate a trusted GET. Missing-date
+review explanations do not authorize a date-filtered GET; explicit ID/--all can.
+
+### Verification and original deferred tests
+
+Fresh starting baseline: 227 collected, 220 passed, seven documented deferrals.
+WP4 checkpoint: artifact/uploader tests 46 passed, three remaining WP5 skips; changed
+file Ruff and mypy passed. WP5 checkpoint: artifact/scheduler/uploader/recovery tests
+97 passed, zero skips; Ruff and mypy passed. WP6 focused crash matrix: 26 passed;
+all Strava modules before review fixes: 222 passed, zero skips. The review regressions
+were observed failing before their fixes, then all five parameterized cases passed.
+
+Final full validation after all code/test changes: **297 collected, 297 passed,
+zero skipped/deferred, zero failures** (`python -m pytest`, 15.57 seconds). No pytest
+warnings were reported. `ruff check .` passed; `black --check .` passed for 72 files;
+`mypy .` passed for 72 source files. Git whitespace review passed; Windows line-ending
+conversion notices are not test failures. All tests use synthetic data and mocked HTTP.
+
+All seven original test names remain active in `tests/test_strava_uploader.py` and
+invoke the approved replacement regressions below; none retain forbidden retry semantics.
+
+| Original test | Replacement regression / WP | Result and behavior |
+| --- | --- | --- |
+| `test_successful_async_upload_persists_and_does_not_repeat` | `test_async_completion_restart_no_post`, WP4/WP5 | Active/pass: completion survives reopen, no repeat POST |
+| `test_retry_is_bounded` | `test_503_and_ambiguity_never_resubmit`, WP4 | Active/pass: one 503 POST, uncertainty, restart zero POST |
+| `test_uncertain_network_outcome_is_not_retried` | `test_503_and_ambiguity_never_resubmit`, WP4 | Active/pass: ambiguous transport retains no-resend barrier |
+| `test_rate_limit_stops_batch_without_retrying` | `test_503_and_ambiguity_never_resubmit` plus `test_post_429_stops_remaining_batch` / `test_get_failure_preserves_id_and_batch_policy`, WP4/WP5 | Active/pass: operation-specific evidence, batch stop, no resend |
+| `test_bounded_pipeline_has_multiple_processing_uploads` | `test_deferred_capacity_and_lower_capacity_restore`, WP5 | Active/pass: retained jobs consume capacity and all IDs restore |
+| `test_daily_rate_limit_stops_uploader_with_pending_state` | `test_daily_reserve_preserves_fresh_provenance`, WP4 | Active/pass: zero intent/POST at daily reserve |
+| `test_keyboard_interrupt_preserves_resumable_state` | `test_keyboard_interrupt_preserves_recovery`, WP4/WP5 | Active/pass: POST/GET/sleep interruption retains strongest evidence |
+
+New test modules: `test_strava_artifacts.py`, `test_strava_scheduler.py`,
+`test_strava_crashes.py`, `test_strava_transport_integration.py`; subprocess helper
+`strava_crash_worker.py`. Existing foundation tests remain active and unchanged.
+Planned descriptive test labels are implemented by equivalent parameterized cases
+where appropriate, rather than requiring one test function per label.
+
+### Crash, migration and backup evidence
+
+`test_eight_crash_boundaries` reopens state and executes the next permitted mocked
+operation, asserting exact POST/GET counts and target IDs:
+
+| Interrupted boundary | Restart result |
+| --- | --- |
+| Before intent | Positive provenance retained; one newly gated POST, then GET |
+| Intent committed before POST | Review, no POST or GET without an ID |
+| During POST | Uncertainty/review, zero repeat POST |
+| Remote accepted, response absent (simulated) | Same conservative no-ID barrier; zero repeat POST |
+| ID received but not committed | Intent barrier; zero repeat POST |
+| ID committed | Same-ID GET only |
+| During GET | Retained ID; same-ID GET only |
+| Terminal received before terminal commit | Reobserve the saved upload ID; no POST |
+
+`test_subprocess_abrupt_exit` terminates without Python cleanup after intent, after
+saved ID and during upgrade mapping. SQLite reopen yields safe intent/known-ID state
+or complete v1, followed by safe migration/GET. This does not establish hardware
+power-loss durability. `test_callback_failure_then_reopen_preserves_terminal`
+proves saved completion survives callback failure and restart makes no request.
+
+`test_legacy_upgrade_scheduler_matrix` covers thirteen rows: fresh; retryable with
+and without ID; uploading without ID; processing with ID; uncertain without ID;
+completed; duplicate; local change plus ID; orphan plus ID; unknown state; malformed
+ID; and known ID plus unknown additional attempts. It checks upgrade, actual mocked
+next operation, reset, reopen, retained IDs/history and unchanged backups. Existing
+`test_upgrade_rollback_at_each_stage` includes post-commit exception/reopen as v2.
+
+`test_backup_not_restored_after_remote_effect` verifies that the old backup remains
+v1 with pre-effect history while v2 retains completion. A pre-upgrade backup is useful
+for diagnosis before new effects; restoring it afterward can erase evidence and
+permit duplicates. No auto-restore or downgrade was added.
+
+A separate synthetic compatibility check loaded the actual archived v1 reader from
+`d9b0027:strava/state.py`: it refuses schema 2 and leaves the version intact. Its old
+constructor nevertheless creates an empty `uploads` table before refusing. Therefore
+do not run old binaries against v2; new structural validation will refuse that mixed
+layout. This observed old-binary limitation is not repaired by this sprint. The
+one-off check's initial Windows temporary-handle cleanup failed; after explicitly
+closing its inspection connection, the check and cleanup passed. It is supplementary
+evidence, not an extra test counted in the 297-test result.
+
+### AC traceability for this slice
+
+These are implementation/verification references, not final SPEC-001 compliance or
+permission to enable production. Foundation matrices remain part of the evidence.
+
+| Criterion | Evidence available |
+| --- | --- |
+| AC-01 | Poll restart GET-only, legacy scheduler matrix, malformed-ID routing |
+| AC-02 | Transient failure/poll budget reopen, pending resets consecutive budget |
+| AC-03 | 503/network ambiguity matrix, eight crash boundaries, no-ID response barriers |
+| AC-04 | Central permission/transaction foundation; ordered intent and contradictory-not-sent regressions |
+| AC-05 | Terminal retention/reset foundation; callback failure and reopened completion |
+| AC-06 | Existing strict duplicate parser matrix plus legacy duplicate scheduler resolution |
+| AC-07 | Wait/access hash recheck, bounded copy mutation, exact stream, artifact-independent GET |
+| AC-08 | Eight injected boundaries and three abrupt subprocess exits |
+| AC-09 | Intent/response SQLite trigger failures, saved ID before GET, terminal-before-callback |
+| AC-10 | Three-job pipeline, lowered capacity restoration, deferred capacity, mixed failure isolation |
+| AC-11 | Existing reserve/read-window tests; composed POST/GET 429 and read-daily stop; bounded GET/backoff |
+| AC-12 | POST/GET/sleep Ctrl+C plus subprocess exit and callback persistence |
+| AC-13 | Unchanged reset/force foundation matrices and composed migration/reset/restart assertions |
+| AC-14 | Version/upgrade fault foundation, composed legacy mapping and interrupted migration; supplementary archived-reader refusal |
+| AC-15 | Malformed/conflicting response/state foundation; known-ID preservation and contradictory preflight proof rejection |
+| AC-16 | Selection/classification and date-filter exclusion retained; final reporting/UI is incomplete, owned by WP7 |
+| AC-17 | Mock HTTP integration verifies synthetic secret markers absent from durable dumps/events; PreparedAccess repr excludes token; private snapshot lifecycle |
+| AC-18 | Processing failure remains review-only after reset and repeated scheduling |
+
+Final user-facing observability (AC-16 and related reporting aspects of other ACs),
+documentation and full compliance evidence remain WP7–WP8. No claim is made of live
+API acceptance, real-workspace validation or overall specification verification.
+
+### Review, limitations and next phase
+
+A fresh read-only reviewer completed the sprint review after an initial review attempt
+was interrupted by a usage limit. No critical issue or approved-model conflict was
+found. Three important findings were fixed in one pass with failing-then-passing tests:
+contradictory NOT_SENT evidence, snapshot-expiry repreparation, and date-unavailable
+selection accidentally restoring GET jobs. Final full checks passed after those fixes.
+There was no second reviewer pass.
+
+Deferred minor: during-POST and accepted-without-response crash cases inject the same
+fake failure and demonstrate their shared conservative durable barrier, not an
+independently recorded fake-server acceptance event. Extra-history integration uses
+the migrated `additional_attempts_unknown` representation. These limits do not assert
+real remote acceptance or erase the retained review requirement.
+
+No behavioral rulings or approved-design deviations were introduced. Reviewer topics
+set aside are explicitly retained as boundaries: WP7 rendering; WP8 compliance/release
+and guard removal; live API/real-workspace acceptance; hardware power loss; concurrent
+writers, external stale restores and remote reconciliation. Their cost is that this
+branch remains guarded and makes no guarantee for those unsupported environments.
+
+Remaining WP7: final CLI/progress/status/dry-run integration and reporting semantics.
+Remaining WP8: final documentation, complete AC compliance review and separately
+authorized guard removal/readiness assessment. The approved spec, AC-01–AC-18,
+schema/version strategy, dependencies and release recommendation are unchanged.
+No real Strava request, real credentials or real migration workspace was used. No
+push, merge or release was performed. Stop here for human review; do not begin WP7.
