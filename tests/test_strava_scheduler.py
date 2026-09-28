@@ -1,7 +1,7 @@
 """SPEC-001 WP5: synchronous observation, capacity, rate and restart evidence."""
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -276,3 +276,70 @@ def test_read_daily_reserve_stops_without_get_or_new_post(tmp_path: Path) -> Non
         run.run(uploader.select())
         assert run.stopped and not client.gets and len(client.posts) == 1
         assert store.load(identifier).attempts[0].upload_id == "1"
+
+
+def test_post_429_stops_remaining_batch(tmp_path: Path) -> None:
+    root, identifiers = multi_workspace(tmp_path, 4)
+    client = Pipeline(Clock())
+    client.failure = RequestFailure(
+        Operation.SUBMIT, FailurePhase.POSSIBLY_SENT, Code.RATE_LIMIT, status_code=429
+    )
+    with UploadStateStore(root / "migration-state.sqlite3") as store:
+        uploader = Uploader(root, store)
+        run = engine(root, store, client)
+        run.run(uploader.select())
+        assert run.stopped and len(client.posts) == 1 and not client.gets
+        assert all(not store.load(i).attempts for i in identifiers[1:])
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_malformed_get_keeps_original_identity(tmp_path: Path, conflict: bool) -> None:
+    root, identifier = workspace(tmp_path)
+    client = Pipeline(Clock())
+    client.observe = lambda i: ResponseEvidence(
+        upload_id=i,
+        remote=Remote.DEFERRED,
+        conflicting_ids=("99",) if conflict else (),
+        code=Code.ID_CONFLICT if conflict else Code.MALFORMED_RESPONSE,
+    )
+    with UploadStateStore(root / "migration-state.sqlite3") as store:
+        uploader = Uploader(root, store)
+        engine(root, store, client, polls=3).run(uploader.select())
+        assert client.gets == ["1"] * (1 if conflict else 3)
+        assert len(client.posts) == 1
+        assert store.load(identifier).attempts[0].upload_id == "1"
+        assert Action.REVIEW in {a.kind for a in uploader.select()}
+
+
+def test_default_sixty_get_budget_and_minimum_interval(tmp_path: Path) -> None:
+    root, identifier = workspace(tmp_path)
+    client = Pipeline(Clock())
+    client.observe = pending
+    with UploadStateStore(root / "migration-state.sqlite3") as store:
+        uploader = Uploader(root, store)
+        run = engine(root, store, client)
+        run.run(uploader.select())
+        assert client.gets == ["1"] * 60
+        assert store.load(identifier).attempts[0].remote == Remote.DEFERRED
+        assert len(client.posts) == 1
+
+
+def test_date_unavailable_review_does_not_schedule_get(tmp_path: Path) -> None:
+    root, identifier = workspace(tmp_path)
+    manifest, _ = MigrationManifest.load(root)
+    manifest.activities[0].time.resolved_utc_start = None
+    (root / "migration-manifest.json").write_text(manifest.model_dump_json(), encoding="utf-8")
+    client = Pipeline(Clock())
+    with UploadStateStore(root / "migration-state.sqlite3") as store:
+        uploader = Uploader(root, store)
+        engine(root, store, client).submit(identifier)
+        manifest.activities.clear()
+        (root / "migration-manifest.json").write_text(manifest.model_dump_json(), encoding="utf-8")
+        uploader = Uploader(root, store)
+        selected = uploader.select(from_date=date(2025, 1, 1))
+        assert len(selected) == 1 and selected[0].reasons == (Code.DATE_UNAVAILABLE,)
+        result = engine(root, store, client).run(selected)
+        assert client.gets == []
+        assert result == tuple(selected)
+        engine(root, store, client).run(uploader.select(activity_id=identifier))
+        assert client.gets == ["1"] and len(client.posts) == 1

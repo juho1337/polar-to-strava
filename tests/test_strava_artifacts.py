@@ -2,11 +2,14 @@
 
 import hashlib
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from core.errors import ValidationError
 from strava.artifacts import ArtifactFailure, VerifiedArtifact, verified_snapshot
 from strava.client import FailurePhase, PreparedAccess, RequestFailure
 from strava.models import MigrationManifest, RateLimit
@@ -277,3 +280,69 @@ def test_callback_failure_preserves_saved_evidence(tmp_path: Path) -> None:
         assert store.load(identifier).attempts[0].remote == Remote.COMPLETED
         runner(root, store, client).submit(identifier)
         assert len(client.posts) == 1
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        ResponseEvidence(http_status=503),
+        ResponseEvidence(duplicate_activity_id="99"),
+        ResponseEvidence(remote=Remote.DEFERRED),
+    ],
+)
+def test_contradictory_not_sent_never_grants_submission(
+    tmp_path: Path, evidence: ResponseEvidence
+) -> None:
+    root, identifier = workspace(tmp_path)
+    client = Transport()
+    client.failure = RequestFailure(
+        Operation.SUBMIT, FailurePhase.NOT_SENT, Code.CLIENT_PREFLIGHT, evidence=evidence
+    )
+    with UploadStateStore(root / "migration-state.sqlite3") as store:
+        Uploader(root, store)
+        if evidence.remote == Remote.DEFERRED:
+            with pytest.raises(ValidationError):
+                runner(root, store, client).submit(identifier)
+        else:
+            runner(root, store, client).submit(identifier)
+        assert store.load(identifier).attempts[0].submission != Submission.NOT_SUBMITTED
+        assert store.load(identifier).attempts[0].http_status == evidence.http_status
+
+
+def test_expired_snapshot_is_closed_before_repreparation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from strava.models import ManifestActivity
+    from tests.test_strava_scheduler import Clock
+
+    root, identifier = workspace(tmp_path)
+    client = Transport()
+    clock = Clock()
+    artifacts: list[VerifiedArtifact] = []
+    preparations: list[float] = []
+
+    def access() -> PreparedAccess:
+        assert all(a.stream.closed for a in artifacts)
+        preparations.append(clock.now)
+        return PreparedAccess("synthetic", 1 if len(preparations) == 1 else 100)
+
+    @contextmanager
+    def copying(
+        root: Path, activity: ManifestActivity, revision: int
+    ) -> Iterator[VerifiedArtifact]:
+        with verified_snapshot(root, activity, revision) as artifact:
+            artifacts.append(artifact)
+            clock.now = 2
+            yield artifact
+
+    monkeypatch.setattr(client, "prepare_access", access)
+    monkeypatch.setattr("strava.uploader.verified_snapshot", copying)
+    with UploadStateStore(root / "migration-state.sqlite3") as store:
+        Uploader(root, store)
+        run = runner(root, store, client)
+        run.clock = clock.time
+        run.submit(identifier)
+        assert preparations == [0, 2]
+        assert client.posts == [b"valid-fit"]
+        assert len(store.load(identifier).attempts) == 1
+    assert len(artifacts) == 2 and all(a.stream.closed for a in artifacts)

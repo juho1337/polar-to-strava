@@ -151,31 +151,37 @@ class _RecoveryRunner:
                 self.on_event(RecoveryEvent(identifier, action.kind, action.reasons))
 
     def submit(self, identifier: str) -> None:
+        # Only stale pre-intent preparation repeats. An attempted POST never does.
+        while not self._prepared_submission(identifier):
+            pass
+
+    def _prepared_submission(self, identifier: str) -> bool:
         if not any(a.kind == Action.SUBMIT for a in classify_actions(self.store.load(identifier))):
-            return
+            return True
         try:
             access = self._access()
         except DailyLimitReached:
             self.stopped = True
-            return
+            return True
         except RequestFailure as error:
             self.store.set_blocker(identifier, "activity", error.code)
-            return
+            return True
         manifest, fingerprint = MigrationManifest.load(self.workspace)
         self.store.reconcile(manifest, fingerprint)
         activity = next(
             (a for a in manifest.activities if a.stable_activity_id == identifier), None
         )
         if activity is None:
-            return
+            return True
         record = self.store.load(identifier)
         try:
             with verified_snapshot(self.workspace, activity, record.revision) as artifact:
                 # Slow copying can outlive access readiness. Discard, never refresh here.
                 if access.expires_at <= self.clock():
-                    return
+                    return False
+                record = self.store.load(identifier)
                 if not submission_permission(record, activity, artifact, True).allowed:
-                    return
+                    return True
                 attempt = self.store.begin_submission(identifier, record.revision, artifact, True)
                 try:
                     evidence = self.client.upload(artifact, identifier, access)
@@ -183,10 +189,21 @@ class _RecoveryRunner:
                     if (
                         error.operation == Operation.SUBMIT
                         and error.phase == FailurePhase.NOT_SENT
+                        and error.code
+                        in {
+                            Code.CLIENT_PREFLIGHT,
+                            Code.AUTHORIZATION,
+                            Code.RATE_LIMIT,
+                            Code.INVALID_ARTIFACT,
+                        }
                         and error.status_code is None
+                        and error.evidence.http_status is None
                         and not error.evidence.upload_id
                         and not error.evidence.activity_id
+                        and not error.evidence.duplicate_activity_id
                         and not error.evidence.conflicting_ids
+                        and error.evidence.remote is None
+                        and error.evidence.code in {Code.NONE, error.code}
                     ):
                         self.store.record_not_submitted(attempt.attempt_id, Code.CLIENT_PREFLIGHT)
                     else:
@@ -203,6 +220,7 @@ class _RecoveryRunner:
                 self._notify(identifier)
         except ArtifactFailure as error:
             self.store.set_blocker(identifier, "activity", error.code)
+        return True
 
     def _restore(
         self, identifiers: set[str], jobs: dict[int, ProcessingJob], *, restored: bool
@@ -277,9 +295,16 @@ class _RecoveryRunner:
     def run(self, selected: list[ActionDecision]) -> tuple[ActionDecision, ...]:
         """Run selected internal jobs; each invocation starts fresh observation budgets."""
         self.stopped = False
-        identifiers = {a.stable_activity_id for a in selected}
+        # Missing date metadata is an explanation, not selection authorization.
+        excluded = tuple(a for a in selected if Code.DATE_UNAVAILABLE in a.reasons)
+        excluded_ids = {a.stable_activity_id for a in excluded}
+        identifiers = {a.stable_activity_id for a in selected} - excluded_ids
         pending = list(
-            dict.fromkeys(a.stable_activity_id for a in selected if a.kind == Action.SUBMIT)
+            dict.fromkeys(
+                a.stable_activity_id
+                for a in selected
+                if a.kind == Action.SUBMIT and a.stable_activity_id in identifiers
+            )
         )
         jobs: dict[int, ProcessingJob] = {}
         self._restore(identifiers, jobs, restored=True)
@@ -301,7 +326,7 @@ class _RecoveryRunner:
                 self._restore(identifiers, jobs, restored=False)
         except KeyboardInterrupt:
             self.stopped = True
-        return tuple(
+        return excluded + tuple(
             action
             for identifier in sorted(identifiers)
             for action in classify_actions(self.store.load(identifier))
