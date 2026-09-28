@@ -194,13 +194,14 @@ def test_manifest_change_is_detected_without_overwriting_history(tmp_path: Path)
         assert any(b.active and b.code == Code.MANIFEST_CHANGED for b in record.blockers)
 
 
-@pytest.mark.skip(reason="SPEC-001 WP4: orchestration disabled by approved Sprint 10.3D sequencing")
-def test_retry_is_bounded() -> None:
-    """Replace historical three-POST 503 assertion with one POST, uncertainty, and zero POST after restart.
+def test_retry_is_bounded(tmp_path: Path) -> None:
+    from strava.recovery import Operation
+    from tests.test_strava_artifacts import test_503_and_ambiguity_never_resubmit
 
-    Historical implementation: d9b0027:tests/test_strava_uploader.py.
-    Restore/replace before the development guard is removed in WP8.
-    """
+    test_503_and_ambiguity_never_resubmit(
+        tmp_path,
+        RequestFailure(Operation.SUBMIT, FailurePhase.POSSIBLY_SENT, Code.SERVER, status_code=503),
+    )
 
 
 def test_oauth_url_token_exchange_and_refresh(tmp_path: Path) -> None:
@@ -340,24 +341,13 @@ def test_malformed_upload_response_is_rejected(tmp_path: Path) -> None:
     assert evidence.code == Code.MALFORMED_RESPONSE and evidence.remote is None
 
 
-@pytest.mark.skip(reason="SPEC-001 WP4: orchestration disabled by approved Sprint 10.3D sequencing")
-def test_uncertain_network_outcome_is_not_retried() -> None:
-    """One ambiguous POST must persist uncertainty and prevent resend.
+def test_uncertain_network_outcome_is_not_retried(tmp_path: Path) -> None:
+    from strava.recovery import Operation
+    from tests.test_strava_artifacts import test_503_and_ambiguity_never_resubmit
 
-    Historical implementation: d9b0027:tests/test_strava_uploader.py.
-    Restore/replace before the development guard is removed in WP8.
-    """
-
-
-@pytest.mark.skip(
-    reason="SPEC-001 WP4/WP5: orchestration disabled by approved Sprint 10.3D sequencing"
-)
-def test_rate_limit_stops_batch_without_retrying() -> None:
-    """429 stops scheduling and retains operation-specific evidence.
-
-    Historical implementation: d9b0027:tests/test_strava_uploader.py.
-    Restore/replace before the development guard is removed in WP8.
-    """
+    test_503_and_ambiguity_never_resubmit(
+        tmp_path, RequestFailure(Operation.SUBMIT, FailurePhase.POSSIBLY_SENT, Code.NETWORK)
+    )
 
 
 def test_reset_protects_completed_state(tmp_path: Path) -> None:
@@ -372,6 +362,18 @@ def test_reset_protects_completed_state(tmp_path: Path) -> None:
         assert store.reset(identifier) == store.reset(identifier, force=True)
         assert store.load(identifier).attempts == before
         assert not any(a.kind == Action.SUBMIT for a in uploader.select())
+
+
+def test_rate_limit_stops_batch_without_retrying(tmp_path: Path) -> None:
+    from strava.recovery import Operation
+    from tests.test_strava_artifacts import test_503_and_ambiguity_never_resubmit
+
+    test_503_and_ambiguity_never_resubmit(
+        tmp_path,
+        RequestFailure(
+            Operation.SUBMIT, FailurePhase.POSSIBLY_SENT, Code.RATE_LIMIT, status_code=429
+        ),
+    )
 
 
 def test_cli_requires_explicit_upload_selector(tmp_path: Path) -> None:
@@ -434,13 +436,10 @@ def test_daily_rate_limit_stops_without_sleeping() -> None:
     assert sleeps == []
 
 
-@pytest.mark.skip(reason="SPEC-001 WP4: orchestration disabled by approved Sprint 10.3D sequencing")
-def test_daily_rate_limit_stops_uploader_with_pending_state() -> None:
-    """Daily reserve prevents intent and POST while preserving positive provenance.
+def test_daily_rate_limit_stops_uploader_with_pending_state(tmp_path: Path) -> None:
+    from tests.test_strava_artifacts import test_daily_reserve_preserves_fresh_provenance
 
-    Historical implementation: d9b0027:tests/test_strava_uploader.py.
-    Restore/replace before the development guard is removed in WP8.
-    """
+    test_daily_reserve_preserves_fresh_provenance(tmp_path)
 
 
 def test_read_rate_limit_applies_only_to_polling_requests() -> None:

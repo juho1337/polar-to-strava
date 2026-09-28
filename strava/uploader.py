@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 
 from core.errors import ValidationError
+from strava.artifacts import ArtifactFailure, verified_snapshot
+from strava.client import FailurePhase, PreparedAccess, RequestFailure, UploadClient
 from strava.models import MigrationManifest
-from strava.recovery import Action, ActionDecision, Code, classify_actions
+from strava.rate_limit import DailyLimitReached, RateLimitPolicy
+from strava.recovery import (
+    Action,
+    ActionDecision,
+    Code,
+    Operation,
+    RecoveryEvent,
+    classify_actions,
+    submission_permission,
+)
 from strava.state import UploadStateStore
 
 INTEGRATION_INCOMPLETE = "recovery integration incomplete"
@@ -79,3 +91,92 @@ class Uploader:
         if not dry_run:
             raise ValidationError(INTEGRATION_INCOMPLETE)
         return self.store.summary()
+
+
+class _RecoveryRunner:
+    """Internal composition under development; neither production guard invokes it.
+
+    Dependencies are mandatory. There is no live-client factory, flag or guard bypass.
+    WP4/WP5 integration tests compose this with synthetic workspaces and transports.
+    """
+
+    def __init__(
+        self,
+        workspace: Path,
+        store: UploadStateStore,
+        client: UploadClient,
+        policy: RateLimitPolicy,
+        *,
+        clock: Callable[[], float],
+        on_event: Callable[[RecoveryEvent], None] | None = None,
+    ) -> None:
+        self.workspace, self.store, self.client = workspace, store, client
+        self.policy, self.clock, self.on_event = policy, clock, on_event
+        self.stopped = False
+
+    def _access(self, *, read: bool = False) -> PreparedAccess:
+        while True:
+            access = self.client.prepare_access()
+            if self.policy.before_request(self.client.rate_limit, read=read):
+                self.client.rate_limit = None
+                continue
+            return access
+
+    def _notify(self, identifier: str) -> None:
+        if self.on_event:
+            for action in classify_actions(self.store.load(identifier)):
+                self.on_event(RecoveryEvent(identifier, action.kind, action.reasons))
+
+    def submit(self, identifier: str) -> None:
+        if not any(a.kind == Action.SUBMIT for a in classify_actions(self.store.load(identifier))):
+            return
+        try:
+            access = self._access()
+        except DailyLimitReached:
+            self.stopped = True
+            return
+        except RequestFailure as error:
+            self.store.set_blocker(identifier, "activity", error.code)
+            return
+        manifest, fingerprint = MigrationManifest.load(self.workspace)
+        self.store.reconcile(manifest, fingerprint)
+        activity = next(
+            (a for a in manifest.activities if a.stable_activity_id == identifier), None
+        )
+        if activity is None:
+            return
+        record = self.store.load(identifier)
+        try:
+            with verified_snapshot(self.workspace, activity, record.revision) as artifact:
+                # Slow copying can outlive access readiness. Discard, never refresh here.
+                if access.expires_at <= self.clock():
+                    return
+                if not submission_permission(record, activity, artifact, True).allowed:
+                    return
+                attempt = self.store.begin_submission(identifier, record.revision, artifact, True)
+                try:
+                    evidence = self.client.upload(artifact, identifier, access)
+                except RequestFailure as error:
+                    if (
+                        error.operation == Operation.SUBMIT
+                        and error.phase == FailurePhase.NOT_SENT
+                        and error.status_code is None
+                        and not error.evidence.upload_id
+                        and not error.evidence.activity_id
+                        and not error.evidence.conflicting_ids
+                    ):
+                        self.store.record_not_submitted(attempt.attempt_id, Code.CLIENT_PREFLIGHT)
+                    else:
+                        self.store.record_evidence(attempt.attempt_id, error.evidence)
+                        self.store.record_uncertain(attempt.attempt_id, error.code)
+                    if error.code == Code.RATE_LIMIT:
+                        self.stopped = True
+                except BaseException:
+                    self.store.record_uncertain(attempt.attempt_id)
+                    raise
+                else:
+                    self.store.record_evidence(attempt.attempt_id, evidence)
+                    self.store.record_uncertain(attempt.attempt_id)
+                self._notify(identifier)
+        except ArtifactFailure as error:
+            self.store.set_blocker(identifier, "activity", error.code)
