@@ -46,3 +46,11 @@ release or modify remote settings unless explicitly requested by the maintainer/
 The project is licensed under the GNU General Public License version 3. By submitting a
 contribution, you agree that it is provided under the project's GPLv3 license. The project
 does not require a contributor license agreement or copyright assignment.
+
+## Recovery changes
+
+SPEC-001 recovery verification must assert durable evidence and actual mocked POST/GET
+counts and identities after reopen, not just final labels. Keep the eight crash windows,
+legacy routing, local-command network isolation and privacy regressions active. A
+passing synthetic suite does not demonstrate live acceptance or hardware power-loss
+durability. Dependency-list cleanup and CI setup remain separate future tasks.

@@ -62,10 +62,14 @@ there are no separate unit/integration directory trees.
 | `test_sprint81.py` | Route/session bounds, lap reconstruction, ambiguous time, summary-only exclusion and equal-time observations |
 | `test_audit.py` | End-to-end local audit, reports, reruns, stable identity, timezone configuration, loss exclusion and progress/manifest independence |
 | `test_audit_progress.py` | Nonterminal CLI phases, empty/failed audits and completion summaries |
-| `test_strava_uploader.py` | Manifest selection, integrity, SQLite/reconciliation/reset, resume/duplicates, bounded retries, uncertain outcomes, OAuth, rate policy, pipeline capacity and local progress/status |
+| `test_strava_uploader.py` | Manifest selection, integrity, SQLite/reconciliation/reset, resume/duplicates, bounded observation, uncertain outcomes, OAuth, rate policy, pipeline capacity and local progress/status |
 
-State, rate-limit and manifest tests currently live mainly in the uploader and audit
-modules. CLI tests are distributed among relevant feature modules; there is no standalone
+Recovery tests additionally live in `test_strava_state`, `test_strava_recovery`,
+`test_strava_responses`, `test_strava_attribution`, `test_strava_artifacts`,
+`test_strava_scheduler`, `test_strava_crashes`, `test_strava_transport_integration`
+and `test_strava_reporting`. They cover all eight crash windows, private snapshots,
+legacy migration, durable uncertainty, bounded GET-only restart, safe reset and local
+reporting with fail-fast network isolation. No orchestration test is deferred. CLI tests are distributed among relevant feature modules; there is no standalone
 CLI suite. `test_cli_fit_and_tcx_formats` exercises `ConversionService` directly despite
 its name. Tests include local end-to-end conversion/audit, not live end-to-end upload.
 
@@ -118,9 +122,9 @@ python -m pytest tests/test_strava_uploader.py
 Changes to manifests/versions, stable identity, FIT/TCX generation, eligibility, uploader
 state, duplicate handling, retries, uncertain outcomes or rate policy need explicit
 regression coverage. Test both success and refusal paths, including state retained after
-failure. A passing suite does not establish untested guarantees: polling-failure recovery,
-hard process termination, byte-identical duplicate sources and shared lap-boundary samples
-need further coverage before changing their documented behavior.
+failure. Polling-failure recovery and abrupt process termination now have synthetic
+coverage. Hardware power loss remains unproven; byte-identical duplicate sources and
+shared lap-boundary samples remain separate limitations.
 
 ## Documentation and completion review
 

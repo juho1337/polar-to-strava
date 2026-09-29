@@ -71,44 +71,50 @@ to store or use authorization that lacks `activity:write`.
 
 ## Upload state
 
-Start with the local command:
+Begin with `python main.py strava status "<workspace>" --details`, then use
+`strava upload "<workspace>" --all --dry-run` for local artifact checks. Both are
+network-free, but can upgrade/reconcile state. Production upload remains guarded while
+SPEC-001 final compliance is pending.
 
-```powershell
-python main.py strava status "C:\path\to\migration-workspace" --details
-```
+| Finding | Safest next action |
+| --- | --- |
+| Needs review / uncertain submission | Preserve state. An earlier POST may have succeeded. No-ID uncertainty has no automatic search, resend or reconciliation. Inspect the remote situation privately and request diagnosis; checking Strava does not itself authorize resend. |
+| Processing failure | Preserve the failed upload ID and result. Ordinary reset, artifact repair and reauthorization cannot authorize another POST. |
+| Missing/changed FIT | Review or regenerate the artifact through the audit workflow, then use safe reset to verify the correction. Known-ID observation remains independent of that file. |
+| Orphaned retained record | Use its stable ID or unfiltered `--all`; it remains visible outside the eligible denominator. Date filters cannot select a record with no reliable retained date. |
+| Authorization/retrieval blocker | Repair OAuth configuration for the intended account, then safe reset may allow a bounded GET retry. Account changes do not prove non-submission or clear uncertain history. |
+| Completed/duplicate plus local blocker | Remote resolution remains recorded. Correct the local issue without erasing remote evidence. |
+| Malformed database or conflicting identity | Stop and preserve files for diagnosis; do not recreate a clean database or guess an identity. |
 
-- `local_file_changed`: the FIT file, eligibility, or manifest changed after state was
-  recorded. Recreate or review the workspace rather than bypassing its hash check.
-- `retryable_failure`: a temporary failure can be selected in a later run.
-- `permanent_failure`: inspect the stored category and message before deciding what to do.
-- `duplicate`: Strava authoritatively identified an existing activity. It is resolved and
-  will not be uploaded again.
-- `uncertain`: the POST outcome could not be determined. **Do not blindly reset and
-  re-upload it**; Strava may already have accepted the activity. Check Strava and compare
-  timestamps before taking an explicit action.
-
-`strava reset --activity-id ID` resets local state only. It never removes a Strava
-activity. Completed and duplicate rows require `--force`; use that only after confirming
-the remote situation. Never edit or delete the SQLite database to clear an error.
+`strava reset "<workspace>" --activity-id ID` rechecks corrected local conditions and
+reports allowed actions. It preserves attempts, IDs, terminal outcomes and unknown
+history. `--force` is deprecated and changes nothing. Never delete/edit SQLite, erase
+evidence, restore an old backup, or use force as a resend mechanism.
 
 ### The uploader is waiting for a rate limit
 
-Short-window reserves cause an automatic pause until the next Strava window. Leave the
-process running or stop it with Ctrl+C and resume later.
+After activation, short-window reserves wait to the next natural quarter-hour plus one
+second. Ctrl+C stops scheduling while preserving committed evidence. HTTP 429 stops
+the batch. Neither event grants POST permission for an earlier attempt.
 
 ### The daily API budget was reached
 
-The uploader stops instead of sleeping for many hours. After the reported midnight UTC
-reset, run the same `strava upload "<workspace>" --all` command.
+Daily/read reserves stop before the next affected request. Resume permitted work after
+midnight UTC; large migrations can span days. GET budgets may defer observations for a
+later run, without authorizing new submissions or treating remote processing as failed.
 
 ### The migration was interrupted
 
-Run `strava status "<workspace>" --details` and review the states below before deciding
-whether to resume with `strava upload "<workspace>" --all`.
-Entries still in `processing` with known upload IDs resume polling without another POST.
-A polling failure or timeout can instead leave `retryable_failure` with an upload ID;
-the current uploader can submit that entry again on the next run. Review its remote
-outcome before retrying. A caught interruption during POST becomes `uncertain`; a hard
-process termination can leave `uploading`, which is not automatically selected again.
-Both require review before resetting. See the
-[recovery limitations](architecture.md#uploader-and-persistence).
+Inspect local status/details before resuming. Once production execution is activated and
+live acceptance authorized, repeating `strava upload "<workspace>" --all` restores
+permitted GETs of known IDs and submits only positively safe candidates. An intent with
+no saved ID remains review-only even if interruption might have preceded transmission.
+Saved completion/duplicate results survive restart and reset.
+
+### An older version opened upgraded state
+
+An archived reader can create an empty legacy table before refusing version 2. Current
+code then refuses the mixed layout; v2 recovery evidence remains intact. Preserve the
+database and request diagnosis. Do not downgrade or manually remove tables. A pre-upgrade
+backup cannot safely replace state after later remote effects. See the
+[uploader guide](strava-uploader.md#persistence-and-upgrade).

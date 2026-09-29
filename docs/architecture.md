@@ -15,8 +15,8 @@ change is implemented; specs do not replace current architecture documentation.
 
 `polar-to-strava` invokes `core.cli:app`; `python main.py` is the compatibility entry
 point to the same Typer application. `scan`, `inspect`, `convert` and `audit` operate
-locally. `strava auth` exchanges credentials with Strava; real `strava upload` sends FIT
-data and polls remote processing, refreshing tokens when necessary. Status and dry-run
+locally. `strava auth` exchanges credentials with Strava; production `strava upload` is temporarily guarded during SPEC-001 integration.
+The internal implementation sends FIT and observes uploads with prepared authorization. Status and dry-run
 make no API requests, but can create/reconcile local SQLite state.
 
 ```mermaid
@@ -74,8 +74,7 @@ Preserve these dependency boundaries:
 - `ConversionService` uses `ActivityImporter` and `Validator` protocols, but constructs
   concrete exporters. `MigrationAudit` additionally imports `PolarImporter`, reads Polar
   fields and calls FIT helpers. It is not a provider-independent service layer.
-- `Uploader` consumes manifest models and FIT files. It imports `file_sha256` from
-  `services.migration`, but does not import the Polar parser. Network access is behind
+- `Uploader` consumes manifest models and FIT files. Artifact verification uses a private hashed snapshot; it does not import the Polar parser. Network access is behind
   its `UploadClient` protocol and the injected `StravaClient`.
 - `ActivityUploader` in `core/contracts.py` is an extension protocol, not the interface
   implemented by the manifest-driven `Uploader`. Do not conflate those contracts.
@@ -229,72 +228,66 @@ the uploader rejects; the audit does not deduplicate them.
 Statuses are `eligible`, `eligible_with_warnings`, `requires_configuration`,
 `excluded_summary_only`, `excluded_invalid_source`, and `excluded_unresolved`.
 Classification uses FIT validity/hash, loss warnings and failure details, including
-error-message matching. Uploader selection additionally requires a resolved start and
-valid FIT metadata. Preserve schema, identity and eligibility behavior; changes need
+error-message matching. Date-filtered recovery requires current or retained start metadata; submission requires
+valid FIT metadata, while known-ID observation is independent of artifacts. Preserve schema, identity and eligibility behavior; changes need
 explicit compatibility design and regression coverage. See [workspace guide](migration-workspace.md).
 
 ## Uploader and persistence
 
-`Uploader` loads the manifest and reconciles it with SQLite schema version 1. New rows
-start pending, including ineligible rows that selection subsequently ignores. Changed
-FIT hashes/eligibility and removed manifest entries become `local_file_changed`, even
-if previously completed; remote IDs are retained. The database stores attempts, times,
-remote IDs, HTTP/error details and manifest fingerprint, not credentials or sensor streams.
-Updates use SQLite transactions; no cross-process workspace lock is implemented.
-
-The CLI requires exactly one selector: `--limit`, `--activity-id` or `--all`, with optional
-date filters. Selection permits eligible pending/retryable/processing entries. A limit
-counts new/retryable submissions, while matching processing entries are also selected.
-FIT paths must resolve inside the workspace and their files must exist with matching
-SHA-256. Selection verifies these; `_submit` verifies again before its retry loop.
-There is no locked snapshot or hash check inside each retry attempt.
-
-HTTP calls are synchronous; the scheduler interleaves POST submissions and GET polling
-while Strava processes several uploads remotely. Default in-flight capacity is three;
-the CLI allows one through ten. Existing processing jobs are loaded together on resume.
-Default polling starts at two seconds, doubles to thirty seconds and is bounded to sixty
-successful still-processing polls per job per run. This is not an asyncio implementation.
+`Uploader` loads manifest version 1 and reconciles schema-2 recovery state. Activities,
+attempts and blockers are independent typed records. Reconciliation preserves remote
+IDs, terminal results and uncertainty while marking changed/missing/ineligible artifacts.
+Pure classification in `strava/recovery.py` reports candidates, observation, review and
+resolution; classification alone never authorizes a request.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> pending
-    pending --> uploading: selected and verified
-    retryable_failure --> uploading: selected on later run
-    uploading --> uploading: bounded retryable submission error
-    uploading --> processing: upload ID saved
-    uploading --> uncertain: POST network uncertainty or caught interruption
-    uploading --> retryable_failure: retryable failure or rate limit
-    uploading --> permanent_failure: nonretryable API error
-    processing --> processing: poll or resume with saved ID
-    processing --> completed: activity ID returned
-    processing --> duplicate: remote error contains duplicate
-    processing --> permanent_failure: processing or nonretryable polling error
-    processing --> retryable_failure: polling error or polling budget exhausted
+flowchart TD
+    Workspace[Manifest and workspace] --> State[Recovery persistence]
+    State --> Actions[Action classification]
+    Actions --> Candidate[Submit candidate]
+    Actions --> Observe[Observe trusted upload ID]
+    Actions --> Review[Review with evidence retained]
+    Actions --> Resolved[Resolved remote outcome]
+    Candidate --> Prepare[Prepare access and rate]
+    Prepare --> Snapshot[Fresh private verified snapshot]
+    Snapshot --> Intent[Transactional permission and committed intent]
+    Intent --> Post[One upload POST]
+    Post --> Evidence[Persist response evidence]
+    Observe --> Get[Bounded rate-controlled GET]
+    Get --> Evidence
+    Evidence --> State
 ```
 
-The diagram shows normal scheduler transitions, not all database operations. Any
-reconciled row can become `local_file_changed`; missing/changed selected FITs also set
-that state. Explicit reset returns a row to pending and clears remote IDs; completed or
-duplicate rows require `--force`. `skipped` is defined but has no normal scheduler
-transition. The store does not enforce a transition graph. Completed and duplicate
-count as resolved; all other states remain unresolved.
+`_RecoveryRunner` owns the single upload POST call site, after central positive permission
+is repeated inside `begin_submission` and intent commits. It sends the same open hashed
+snapshot through `UploadClient`; transport does not refresh tokens, wait, reopen paths
+or retry POST. Response-write failure stops work with committed intent/IDs retained.
+The HTTP client has a separate OAuth token POST, which is not an activity submission.
 
-Important recovery limits:
+Both production entry points are currently guarded pending final WP8 compliance.
+The internal runner is exercised using injected synthetic transports and clocks.
 
-- Only **processing with an upload ID** resumes polling. A polling error/timeout sets
-  `retryable_failure` while retaining the ID; a later selection submits it again.
-  Inspect the remote outcome before retrying such a row. Persisted ID alone does not
-  guarantee polling-only recovery.
-- Caught network uncertainty or interruption during submission becomes `uncertain` and
-  is not automatically selected again. A hard termination can leave `uploading`, which
-  is also not automatically selected or reclassified. Reconcile the remote outcome
-  before any manual reset.
-- Retryable submission errors have bounded exponential delays (three attempts by
-  default). HTTP 429 stops the batch. Malformed responses are classified differently
-  from network uncertainty; missing upload IDs can raise outside the handled API-error
-  path. These are implementation limits, not proof that every failure is safely resumable.
+Known-ID processing/deferred jobs are independent of local FIT validity and current
+manifest membership. Failed GET never authorizes POST. No-ID uncertainty and processing
+failure require review. Reset clears only verified corrected local/access conditions;
+it cannot erase history, and `--force` is a deprecated no-op.
 
-See [uploader operations](strava-uploader.md); preserve local state during migration.
+The synchronous scheduler defaults to three jobs and restores all selected known IDs
+even at lower capacity. Deferred jobs retain capacity; no-progress runs terminate.
+Polling starts at two seconds for new jobs, immediately for restored ones, doubles to
+thirty seconds, and is bounded to sixty actual GETs and three consecutive transient
+failures per job/run. Successful pending GET resets the consecutive-failure count.
+There is no generic POST retry loop or status-based resend path.
+
+Schema 1 upgrades atomically after a private SQLite backup; version is updated last.
+Conservative mapping never invents erased history. Unsupported/corrupt/partial schemas
+fail closed. No downgrade or automatic backup restore exists. Archived readers can add
+an empty legacy table before version refusal, leaving v2 evidence intact but causing
+current mixed-layout refusal. See [operations and limitations](strava-uploader.md).
+
+The guarantee assumes one uploader process and intact history. SQLite transactions are
+not a cross-process migration lock or an atomic transaction with Strava. No exactly-once,
+stale-restore recovery, account binding or hardware power-loss guarantee is claimed.
 
 ## HTTP, OAuth and rate limits
 
@@ -304,15 +297,15 @@ and persists a minimal token set. No callback server runs. A state nonce is gene
 for the authorization URL, but the CLI does not verify a returned state value. Tokens
 refresh when expiry is within an hour; the newest refresh token is saved via temporary
 file and `os.replace`. Storage is plaintext, with no application-managed encryption or
-permission hardening. OAuth diagnostics suppress response data; processing-error
-sanitization strips HTML and truncates text, not arbitrary secrets.
+permission hardening. OAuth diagnostics suppress response data; recovery diagnostics persist fixed codes
+and validated IDs, not arbitrary remote text. Prepared token values are excluded from repr.
 
 Rate policy uses observed overall and optional read limit/usage headers. Defaults reserve
 ten requests. A short reserve waits until the next natural quarter-hour plus one second;
 a daily reserve stops with the next midnight UTC time. Read limits apply to polling.
 Missing/malformed headers do not create guessed quotas. After waiting, the uploader
-clears its snapshot and awaits new headers. Policy checks precede upload/poll calls;
-OAuth refresh inside those calls is not separately scheduled by that policy. No fixed
+clears its snapshot and awaits new headers. Access refresh and policy waits occur before snapshot verification. Transport does not
+refresh; OAuth preparation may update the rate snapshot before policy is evaluated again. No fixed
 personal account quota is assumed. See [setup](strava-setup.md).
 
 ## Progress and future frontends
@@ -324,8 +317,10 @@ means reports/manifest were written, not that every activity succeeded. Callback
 in the parent process as ordered results arrive. `AuditProgressRenderer` chooses live
 Rich output or bounded static phase messages; it does not alter eligibility.
 
-Uploader callbacks carry a manifest activity (or none) and an event string. Rate waits
-have a separate `RateWait` callback. Local snapshots derive progress from manifest/state.
+Uploader callbacks carry `RecoveryEvent(identifier, action, reason_codes)`, including
+retained IDs absent from the manifest. Rate waits use a separate `RateWait` callback.
+Evidence-based snapshots count each activity once per category; overlapping review and
+resolution are explicit. The resolved percentage uses the current eligible population.
 A future GUI should reuse these services, domain values and workspace/state logic,
 adapting callbacks to its thread/event model. It must not parse terminal text, duplicate
 Polar or upload logic, or create a second migration engine. Rich imports in
@@ -350,6 +345,6 @@ sidecars. Follow [privacy guidance](privacy.md) and [security policy](../SECURIT
 - Preserve supported observations and explicit time semantics; report ambiguity and loss.
 - Manifest identity/version and FIT hashes remain compatibility and integrity boundaries.
 - Persist submission state before external effects and remote IDs before polling; never
-  blindly retry an uncertain POST. The recovery limitations above require separate fixes.
+  retry an uncertain POST. Known IDs permit only observation, review or resolution.
 - Terminal presentation is not an application API; service progress stays reusable.
 - Tests and routine development use local synthetic/sanitized data and mocked APIs.

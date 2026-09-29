@@ -55,8 +55,8 @@ overwrite bytes; report generation is not transactional. Do not describe those w
 as atomic. Token persistence uses temporary-file replacement; SQLite uses parameterized
 statements and transactions in `UploadStateStore`. Use that store for upload state,
 not ad hoc database edits. Retain IDs/history when reconciling manifests, and preserve
-state ordering around external effects: `uploading` before POST, upload ID and
-`processing` before polling. Review [recovery limitations](architecture.md#uploader-and-persistence)
+state ordering around external effects: committed submission intent before POST, trusted upload identity and
+remote evidence before polling. Review [recovery limitations](architecture.md#uploader-and-persistence)
 before altering retries or reset behavior.
 
 ## Time and measurements
@@ -84,8 +84,7 @@ failures. `ActivityValidator` returns structured issues; TCX export validation r
 Catch specific errors where practical, preserve causes and useful safe context, and
 avoid silent broad exception swallowing. Existing broad catches in batch conversion and
 audit isolate individual failures into structured results; preserve that reporting when
-working there. `StravaAPIError` is a separate exception with category, retryability and
-HTTP status; it is not a subclass of the application's base error. CLI error handling
+working there. `RequestFailure` carries operation, request phase, fixed safe code and evidence; it is not a subclass of the application's base error. CLI error handling
 does not uniformly catch every possible failure.
 
 Never include secrets in public-facing exceptions, logs, reports or test fixtures. OAuth

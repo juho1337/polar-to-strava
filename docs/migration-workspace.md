@@ -65,3 +65,14 @@ After authorization, the uploader adds `.strava-tokens.json` and
 `migration-state.sqlite3` to the workspace. The token file contains authentication
 secrets. The SQLite database records durable upload outcomes and known Strava upload IDs.
 Keep both private, and do not delete the database during an active migration.
+
+## Recovery state and compatibility
+
+Schema 2 separates submission history, remote outcomes and local blockers. Removed
+manifest entries remain in recovery state and reporting; retained metadata supports
+explicit/date selection without inventing missing dates. Manifest version 1 and source
+identity are unchanged. Opening legacy state creates a private unique sibling
+`migration-state.sqlite3.v1-*.backup` before atomic upgrade. Keep backups and sidecars
+private. Unsupported or mixed schemas are refused, with no automatic restore/downgrade.
+Never replace current state with a stale backup after remote activity. See
+[upgrade limitations](strava-uploader.md#persistence-and-upgrade).

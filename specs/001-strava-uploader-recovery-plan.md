@@ -1219,3 +1219,123 @@ Live acceptance, hardware power-loss durability, concurrent writers and external
 restores are not established by these synthetic tests; prior documented limitations remain.
 This is not a usable production migration release. Stop for human WP7 review and separate
 WP8 authorization; keep both guards active.
+
+## Sprint 10.3G final compliance review (2026-09-29)
+
+This review restarted at AC-01 after the AC-15 correction in
+`cf6f92d814174619a86c81e30f2e46f180741b15`. It inspects implementation and assertions,
+not only earlier reports. The initial WP8 baseline was 329 passed, zero skips; the
+attribution fix added 20 cases. Its first run had 15 failures and 5 passes, including
+actual mocked GETs of the wrongly attributed ID. After the fix, focused suites passed
+178 tests and the full suite passed 349 with zero skips/failures. Ruff passed, Black
+left 74 files unchanged and mypy passed 74 files. A test-only typing correction was
+followed by 20 passing attribution cases and all static checks.
+
+The attribution rule checks unexpected HTTP bodies for upload-shaped status/outcome
+fields before extracting identifiers. Expected success envelopes retain the approved
+partial-evidence parser. Unexpected HTTP never establishes terminal resolution; generic
+IDs create neither a target nor identity conflicts. GET retains the previously trusted
+requested ID. Original reproduction: first run one POST, zero GET; reopen/restart zero
+POST and zero GET, uncertain/review, no ID 123 or raw error message persisted.
+
+### Per-criterion review of the implemented recovery contract
+
+Results below concern synthetic/spec behavior under intact-history/single-process
+assumptions. They do not claim live acceptance. Test references are function names in
+`tests/`; the complete suite executes every listed parameterized case.
+
+| AC / requirement | Implementation | Concrete test evidence | Documentation | Result / limits |
+| --- | --- | --- | --- | --- |
+| AC-01 known IDs never grant POST | `recovery.observation_permission`, `_submission_reasons`; `uploader._restore` | `test_poll_failure_and_budget_restart_get_only`, `test_legacy_upgrade_scheduler_matrix` | Uploader selection/resume | PASS; trustworthy targets only |
+| AC-02 failed/pending/exhausted observations preserve identity | `state.defer_observation`; `uploader._observe` | `test_poll_failure_and_budget_restart_get_only`, `test_get_failure_preserves_id_and_batch_policy` | Uploader scheduler/restart | PASS; GET budgets reset per run |
+| AC-03 uncertain acceptance blocks resend | `client._upload_response`; `state.record_uncertain`; transactional intent | `test_503_and_ambiguity_never_resubmit`, `test_generic_503_stays_uncertain_after_reopen_without_post_or_get`, crash matrix | Troubleshooting uncertainty | PASS; no remote reconciliation |
+| AC-04 positive durable permission for every POST | `submission_permission`; `state.begin_submission`; `uploader._prepared_submission` | `test_submission_permission_matrix`, `test_positive_permission_and_transactional_reuse`, `test_not_sent_allows_later_corrected_attempt` | Architecture submission sequence | PASS; no HTTP-code retry permission |
+| AC-05 completion survives local changes/reset | `state.record_evidence`, `reconcile`, `reset` | `test_terminal_evidence_survives_updates`, `test_manifest_change_is_detected_without_overwriting_history`, reporting overlap | Uploader outcomes/reset | PASS; blockers remain independent |
+| AC-06 conservative authoritative duplicate | `responses.parse_upload_response`; legacy mapping | `test_duplicate_assertion_matrix`, `test_duplicate_and_permanent_states_are_not_reselected`, legacy matrix | Uploader integrity/limitations | PASS; unknown wording reviews |
+| AC-07 exact fresh artifact and artifact-independent GET | `artifacts.verified_snapshot`; ordered preparation; `observation_permission` | `test_snapshot_bytes_are_sent`, `test_hash_rechecked_after_preparation`, `test_snapshot_copy_is_bounded_and_mutation_blocks_post`, `test_expired_snapshot_is_closed_before_repreparation`, `test_observation_independent_of_artifact` | Architecture and uploader integrity | PASS; no concurrent-writer guarantee |
+| AC-08 eight crash boundaries | Intent/evidence transactions and scheduler restart | `test_eight_crash_boundaries`, `test_subprocess_abrupt_exit` | Uploader persistence/restart | PASS; simulated faults, not hardware power loss |
+| AC-09 intent failure prevents POST; IDs precede GET | `begin_submission`, `record_evidence`; `_prepared_submission` | `test_order_and_intent_before_transport`, `test_persistence_fault_stops_post_or_restart`, `test_response_write_failure_keeps_intent_barrier` | Architecture ordering | PASS; failure stops scheduling |
+| AC-10 independent jobs and capacity | `ProcessingJob`, `_restore`, `_RecoveryRunner.run` | `test_deferred_capacity_and_lower_capacity_restore`, `test_get_failure_preserves_id_and_batch_policy` | Uploader scheduler | PASS; synchronous remote pipeline |
+| AC-11 rate/reserve/429/bounded observation | `RateLimitPolicy`; `_access`, `_observe` | `test_short_rate_limit_waits_to_natural_window`, `test_read_rate_limit_applies_only_to_polling_requests`, `test_read_daily_reserve_stops_without_get_or_new_post`, `test_post_429_stops_remaining_batch`, `test_default_sixty_get_budget_and_minimum_interval` | Uploader rate limits | PASS; no guessed quota |
+| AC-12 interruption retains committed evidence | Submission exception handling, GET deferral, runner stop | `test_keyboard_interrupt_preserves_recovery`, `test_subprocess_abrupt_exit`, `test_callback_failure_then_reopen_preserves_terminal` | Troubleshooting interruption | PASS; hard exits rely on commits |
+| AC-13 reset cannot erase evidence or force resend | `state.reset`; CLI reset presentation | `test_reset_matrix_preserves_evidence`, `test_force_reset_preserves_evidence_and_action`, `test_legacy_upgrade_scheduler_matrix` | Safe reset/troubleshooting | PASS; no reconciliation override |
+| AC-14 atomic conservative versioned migration | `state_migration.ensure_schema`, `_map_row`, `validate_v2` | `test_v1_mapping_matrix`, `test_upgrade_rollback_at_each_stage`, `test_bad_database_refused_without_recreation`, `test_legacy_upgrade_scheduler_matrix`; archived-reader check below | Uploader upgrade/workspace | PASS; archived-reader availability limitation below |
+| AC-15 malformed/conflicting evidence fails closed | `is_upload_envelope`, response parser, store validation/conflict blockers | All 20 `test_strava_attribution` cases; `test_get_identity_conflict_retains_original`, `test_semantically_malformed_v2_is_refused`, shared-ID tests | Uploader response trust | PASS after cf6f92d; not a guarantee of server truthfulness |
+| AC-16 safe actions, overlap/orphans, local preview | `progress.snapshot`, details/renderer; `Uploader.select/preview`; CLI | All 32 `test_strava_reporting` cases, local preview isolation and selector tests | README/uploader/troubleshooting | PASS for implemented reporting; production adapter activation checked separately below |
+| AC-17 private diagnostics/evidence; safe auth repair | `PreparedAccess`, fixed `Code`, parser, reset, literal rendering | OAuth redaction tests, `test_composed_http_transport_exact_bytes_and_private_evidence`, reporting privacy and attribution dump tests; mocked CLI failure check | Privacy/setup | PASS; plaintext token storage/account binding unchanged |
+| AC-18 processing failure remains review | `Remote.PROCESSING_FAILED`, permission/classifier, reset | `test_processing_failure_stays_review_after_reset_and_restart`, reset matrix | Troubleshooting processing failure | PASS; no automatic recovery POST |
+
+### Invariant, deferred-work and compatibility audit
+
+Upload POST has one orchestration caller: `_RecoveryRunner._prepared_submission` calls
+`StravaClient.upload` after fresh snapshot and transactional permission/intent. Client
+transport uses one HTTP POST; the other HTTP POST is OAuth token preparation. No legacy
+status-based resend caller or alternate migration engine exists. Central duplicate
+prevention, known-ID, uncertainty, reset, artifact, persistence, response, observation,
+scheduler and reporting invariants pass for the reviewed internal implementation.
+
+Search of source/tests/plan for skip, xfail, TODO, FIXME, temporary, deferred, integration
+incomplete, legacy scheduler, compatibility path, guard and test-only bypass found no
+hidden orchestration deferral. `deferred` remote state and scheduler flags are deliberate
+GET deferrals; `skipped` is legacy/audit data, not a skipped test. Temporary token and
+snapshot files are runtime mechanisms. Earlier plan execution notes are historical.
+The two production guards and their tests are the explicit pending activation work.
+The old read-only `UploadState`/`summary` projection has no UI or submission caller.
+
+All seven original tests are active, with these replacement obligations verified again:
+
+| Original test | Active equivalent |
+| --- | --- |
+| successful_async_upload_persists_and_does_not_repeat | async_completion_restart_no_post |
+| retry_is_bounded | 503_and_ambiguity_never_resubmit; GET failure/backoff budget tests |
+| uncertain_network_outcome_is_not_retried | 503_and_ambiguity_never_resubmit |
+| rate_limit_stops_batch_without_retrying | 503_and_ambiguity_never_resubmit; post_429_stops_remaining_batch; get_failure_preserves_id_and_batch_policy |
+| bounded_pipeline_has_multiple_processing_uploads | deferred_capacity_and_lower_capacity_restore |
+| daily_rate_limit_stops_uploader_with_pending_state | daily_reserve_preserves_fresh_provenance |
+| keyboard_interrupt_preserves_resumable_state | keyboard_interrupt_preserves_recovery |
+
+Crash matrix: before intent permits one later gated attempt; committed intent before
+POST, during POST, acceptance/response absence and ID-not-committed yield review with
+zero repeat POST. ID-committed, during GET and terminal-before-commit restore same-ID GET.
+Saved terminal evidence survives callback failure. Tests assert operations and IDs after
+reopen; during-transmission/response-loss simulations do not prove actual remote acceptance.
+
+The archived `d9b0027:strava/state.py` was executed against a synthetic v2 database with
+saved completion. It refused v2 and added an empty `uploads` table. Every row in metadata,
+activities, attempts and blockers compared unchanged. Current code refuses that mixed
+layout. Thus current evidence is not damaged or downgraded, but old-reader use can prevent
+normal opening. Documentation prohibits old binaries/manual repair and explains the
+availability limitation. No old backup was restored and no downgrade path was added.
+
+A mocked CLI OAuth failure was run in a subprocess with synthetic client-secret and
+authorization-code markers. Neither appeared in terminal output. The first sandboxed
+attempt did not establish the intended path and had a temporary-directory access error;
+the unrestricted synthetic rerun reached the expected exception and passed. No real
+token, account, workspace or network was used. PreparedAccess repr and persisted/event
+privacy remain covered by the active tests. Backups intentionally retain private v1 data.
+
+An independent read-only reviewer inspected WP1–WP7 and cf6f92d, including the five plan
+review-focus cases, and reported no critical, important or minor findings. No extra
+behavioral ruling or design deviation was introduced. The reviewer did not rerun tests.
+Topics set aside remain explicit limitations: live acceptance, hardware power loss,
+concurrent writers, deleted/external stale history, remote reconciliation and OAuth
+redesign. Production composition/documentation/final validation remain the executor's
+WP8 responsibility, not waived requirements.
+
+Dependency/configuration comparison to the approved plan baseline shows no changes to
+`pyproject.toml` or `requirements.txt`. General dependency-list/CI modernization remains
+future work. Installation and SECURITY guidance were reviewed; no edits were necessary.
+
+### Activation checkpoint
+
+Pre-activation gate PASS: all 18 internal AC reviews pass, no unresolved behavioral
+decision, no deferred orchestration test, no alternate/status-based POST path; crash,
+legacy, local-command isolation and privacy checks pass. Updated current documentation
+was reviewed; 109 local Markdown links/anchors resolve. Mermaid flow structure was
+manually checked against the implementation; no Mermaid renderer was run.
+
+Fresh pre-activation validation: 349 passed, zero skips/failures (18.41 s), Ruff passed,
+Black unchanged (74 files), mypy passed (74 files), whitespace check clean. Documentation
+changes contain no binary/generated/private artifacts. Both guards remained active
+through this checkpoint. This permits the authorized final production composition and
+guard replacement tests; WP8 is not complete until that wiring and final checks pass.

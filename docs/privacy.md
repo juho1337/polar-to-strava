@@ -46,3 +46,17 @@ elsewhere or files already committed.
 For a suspected vulnerability or accidental secret exposure, follow
 [SECURITY.md](../SECURITY.md). Revoke exposed Strava credentials or tokens promptly from
 Strava rather than posting them for diagnosis.
+
+## Recovery evidence and snapshots
+
+Schema-2 recovery state retains identifiers, timestamps, hashes and fixed reason codes;
+raw HTTP/OAuth payloads and arbitrary remote error text are excluded. Status and preview
+do not refresh tokens or contact Strava. Private schema-1 sibling backups may contain
+older raw diagnostics. Treat backups and SQLite sidecars as sensitive too.
+
+Submission uses a private OS temporary snapshot outside the workspace. Normal exit
+closes it; hard-termination cleanup depends on the platform. Protect the temporary
+directory and disk. Prepared credentials exclude tokens from repr, but tokens remain
+plaintext on disk. There is no new token encryption or binding to a historical account.
+Do not restore an old backup after remote activity; it can erase evidence preventing
+resubmission. See [recovery operations](strava-uploader.md).
