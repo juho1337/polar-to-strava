@@ -8,6 +8,28 @@ import re
 from strava.recovery import Code, Operation, Remote, ResponseEvidence, positive_id
 
 
+def is_upload_envelope(payload: object) -> bool:
+    """Require upload-shaped fields before interpreting unexpected HTTP body IDs.
+
+    Expected success HTTP supplies operation context for partial parsing. An error
+    response does not: a generic error object's positive ``id`` is not an upload ID.
+    Identity consistency remains the parser's job, so attributable conflicts survive.
+    """
+    if not isinstance(payload, dict):
+        return False
+    status, error, activity = (
+        payload.get("status"),
+        payload.get("error"),
+        payload.get("activity_id"),
+    )
+    return (
+        isinstance(status, str)
+        and bool(status.strip())
+        and (error is None or isinstance(error, str))
+        and (activity is None or type(activity) is int and positive_id(activity) is not None)
+    )
+
+
 def parse_upload_response(
     payload: object, *, operation: Operation, expected_upload_id: str | None = None
 ) -> ResponseEvidence:

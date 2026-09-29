@@ -18,7 +18,7 @@ from core.errors import ConfigurationError
 from strava.artifacts import VerifiedArtifact
 from strava.models import RateLimit, StravaTokenResponse, TokenSet
 from strava.recovery import Code, Operation, ResponseEvidence, positive_id
-from strava.responses import parse_upload_response
+from strava.responses import is_upload_envelope, parse_upload_response
 
 AUTH_URL = "https://www.strava.com/oauth/authorize"
 TOKEN_URL = "https://www.strava.com/oauth/token"
@@ -250,13 +250,16 @@ class StravaClient:
             payload = response.json()
         except ValueError:
             payload = None
+        expected = 201 if operation == Operation.SUBMIT else 200
+        if response.status_code != expected and not is_upload_envelope(payload):
+            # Discard generic error identifiers; GET still retains its trusted target.
+            payload = None
         evidence = replace(
             parse_upload_response(
                 payload, operation=operation, expected_upload_id=expected_upload_id
             ),
             http_status=response.status_code,
         )
-        expected = 201 if operation == Operation.SUBMIT else 200
         if response.status_code != expected:
             code = (
                 Code.RATE_LIMIT
