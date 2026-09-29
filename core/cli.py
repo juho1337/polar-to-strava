@@ -16,7 +16,7 @@ from services import ActivityValidator, ConversionService
 from services.audit import MigrationAudit
 from strava.client import StravaClient, TokenStore, authorization_url, credentials
 from strava.models import MigrationManifest
-from strava.progress import print_status, snapshot
+from strava.progress import print_actions, print_status, snapshot
 from strava.state import UploadStateStore
 from strava.uploader import Uploader
 
@@ -63,7 +63,7 @@ def strava_upload(
     max_in_flight: Annotated[int, typer.Option("--max-in-flight", min=1, max=10)] = 3,
     rate_limit_reserve: Annotated[int, typer.Option("--rate-limit-reserve", min=0)] = 10,
 ) -> None:
-    """Upload eligible manifest activities with persistent resume state."""
+    """Preview local recovery with --dry-run; production uploads remain guarded."""
     if sum((limit is not None, activity_id is not None, all_activities)) != 1:
         raise typer.BadParameter("Choose exactly one of --limit, --activity-id, or --all")
     try:
@@ -80,10 +80,11 @@ def strava_upload(
             selected = uploader.select(
                 limit=limit, activity_id=activity_id, from_date=parsed_from, to_date=parsed_to
             )
-            for decision in selected:
-                console.print(f"{decision.stable_activity_id}: {decision.kind.value}")
-                for reason in decision.reasons:
-                    console.print(reason.value)
+            print_actions(console, uploader.preview(selected), preview=True)
+            console.print(
+                "Local preview only: no requests or submission intent. would_submit requires "
+                "fresh checks on a later run and does not guarantee Strava acceptance."
+            )
     except PolarToStravaError as error:
         console.print(f"[red]Error:[/red] {error}")
         raise typer.Exit(code=1) from error
@@ -98,24 +99,28 @@ def strava_status(
     manifest, fingerprint = MigrationManifest.load(workspace)
     with _state_store(workspace) as store:
         store.reconcile(manifest, fingerprint)
-        current = snapshot(manifest, store.summary())
-    print_status(console, current, details)
+        records = store.records()
+        current = snapshot(manifest, records)
+    print_status(console, current, details, records=records)
 
 
 @strava_app.command("reset")
 def strava_reset(
     workspace: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
     activity_id: Annotated[str, typer.Option("--activity-id")],
-    force: Annotated[bool, typer.Option("--force")] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Deprecated no-op; cannot override recovery protection.")
+    ] = False,
 ) -> None:
-    """Reset selected local state; never delete a remote activity."""
+    """Recheck local blockers and report the safest action; preserve upload history."""
     manifest, fingerprint = MigrationManifest.load(workspace)
     with _state_store(workspace) as store:
         store.reconcile(manifest, fingerprint)
         actions = store.reset(activity_id, force)
     if force:
         console.print("--force is deprecated and cannot override recovery protection.")
-    console.print("Safest local action: " + ", ".join(a.kind.value for a in actions))
+    console.print("Safest local action(s):")
+    print_actions(console, actions)
 
 
 @app.command()

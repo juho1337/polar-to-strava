@@ -484,10 +484,10 @@ def test_progress_counts_only_completed_and_duplicate_as_resolved(tmp_path: Path
             store.record_evidence(start_attempt(store, uploader, identifier), evidence)
         for identifier in identifiers[3:]:
             store.record_uncertain(start_attempt(store, uploader, identifier))
-        result = snapshot(uploader.manifest, store.summary())
+        result = snapshot(uploader.manifest, store.records())
     assert result.resolved == 2 and result.remaining == 4
     assert result.completed == 1 and result.duplicate == 1
-    assert result.needs_attention == 3
+    assert result.needs_review == 3
     assert result.percent == pytest.approx(100 / 3)
 
 
@@ -509,7 +509,8 @@ def test_status_is_local_and_reports_progress(tmp_path: Path) -> None:
         )
     result = CliRunner().invoke(app, ["strava", "status", str(root), "--details"])
     assert result.exit_code == 0
-    assert "1 / 1 (100.00%)" in result.output and "pending=0" in result.output
+    assert "1 / 1 (100.00%)" in result.output and "Resolved" in result.output
+    assert "Remote: completed" in result.output
 
 
 def start_attempt(store: UploadStateStore, uploader: Uploader, identifier: str) -> int:

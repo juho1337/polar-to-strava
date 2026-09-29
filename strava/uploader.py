@@ -11,6 +11,7 @@ from core.errors import ValidationError
 from strava.artifacts import ArtifactFailure, verified_snapshot
 from strava.client import FailurePhase, PreparedAccess, RequestFailure, UploadClient
 from strava.models import MigrationManifest
+from strava.progress import ProgressSnapshot, snapshot
 from strava.rate_limit import DailyLimitReached, RateLimitPolicy
 from strava.recovery import (
     Action,
@@ -101,11 +102,44 @@ class Uploader:
                 selected.append(action)
         return selected
 
-    def run(self, activities: list[ActionDecision], dry_run: bool = False) -> dict[str, int]:
+    def preview(self, selected: list[ActionDecision]) -> list[ActionDecision]:
+        """Check local artifacts without access preparation, reservations or submission intent."""
+        activities = {a.stable_activity_id: a for a in self.manifest.activities}
+        result: list[ActionDecision] = []
+        seen: set[str] = set()
+        for decision in selected:
+            identifier = decision.stable_activity_id
+            if identifier in seen:
+                continue
+            seen.add(identifier)
+            if Code.DATE_UNAVAILABLE in decision.reasons:
+                result.append(decision)
+                continue
+            record = self.store.load(identifier)
+            activity = activities.get(identifier)
+            local_reasons: tuple[Code, ...] = ()
+            if activity is not None:
+                try:
+                    with verified_snapshot(self.workspace, activity, record.revision) as artifact:
+                        if any(a.kind == Action.SUBMIT for a in classify_actions(record)):
+                            permission = submission_permission(record, activity, artifact, True)
+                            local_reasons = permission.reasons
+                except ArtifactFailure as error:
+                    self.store.set_blocker(identifier, "activity", error.code)
+            actions = classify_actions(self.store.load(identifier))
+            if local_reasons:
+                actions = tuple(a for a in actions if a.kind != Action.SUBMIT) + (
+                    ActionDecision(Action.REVIEW, identifier, reasons=local_reasons),
+                )
+            result.extend(actions)
+        return result
+
+    def run(self, activities: list[ActionDecision], dry_run: bool = False) -> ProgressSnapshot:
         # Authoritative guard: no escape hatch, client access, callback or scheduler.
         if not dry_run:
             raise ValidationError(INTEGRATION_INCOMPLETE)
-        return self.store.summary()
+        self.preview(activities)
+        return snapshot(self.manifest, self.store.records())
 
 
 class _RecoveryRunner:
@@ -145,10 +179,13 @@ class _RecoveryRunner:
                 continue
             return access
 
-    def _notify(self, identifier: str) -> None:
+    def _notify(self, identifier: str, reason: Code | None = None) -> None:
         if self.on_event:
             for action in classify_actions(self.store.load(identifier)):
-                self.on_event(RecoveryEvent(identifier, action.kind, action.reasons))
+                reasons = action.reasons + (
+                    (reason,) if reason and reason not in action.reasons else ()
+                )
+                self.on_event(RecoveryEvent(identifier, action.kind, reasons))
 
     def submit(self, identifier: str) -> None:
         # Only stale pre-intent preparation repeats. An attempted POST never does.
@@ -162,9 +199,11 @@ class _RecoveryRunner:
             access = self._access()
         except DailyLimitReached:
             self.stopped = True
+            self._notify(identifier, Code.RATE_LIMIT)
             return True
         except RequestFailure as error:
             self.store.set_blocker(identifier, "activity", error.code)
+            self._notify(identifier)
             return True
         manifest, fingerprint = MigrationManifest.load(self.workspace)
         self.store.reconcile(manifest, fingerprint)
@@ -220,6 +259,7 @@ class _RecoveryRunner:
                 self._notify(identifier)
         except ArtifactFailure as error:
             self.store.set_blocker(identifier, "activity", error.code)
+            self._notify(identifier)
         return True
 
     def _restore(
@@ -254,10 +294,12 @@ class _RecoveryRunner:
         except DailyLimitReached:
             self.store.defer_observation(job.attempt_id, Code.RATE_LIMIT)
             self.stopped = True
+            self._notify(job.identifier, Code.RATE_LIMIT)
             return
         except RequestFailure as error:
             self.store.defer_observation(job.attempt_id, error.code)
             job.deferred = True
+            self._notify(job.identifier, error.code)
             return
         if not observation_permission(
             self.store.load(job.identifier), job.attempt_id, True
@@ -290,7 +332,17 @@ class _RecoveryRunner:
             job.deferred = True
         job.interval = min(30.0, job.interval * 2)
         job.due = self.clock() + job.interval
-        self._notify(job.identifier)
+        attempt = next(
+            item
+            for item in self.store.load(job.identifier).attempts
+            if item.attempt_id == job.attempt_id
+        )
+        event_reason = (
+            attempt.error_code
+            if attempt.remote == Remote.DEFERRED and attempt.error_code != Code.NONE
+            else None
+        )
+        self._notify(job.identifier, event_reason)
 
     def run(self, selected: list[ActionDecision]) -> tuple[ActionDecision, ...]:
         """Run selected internal jobs; each invocation starts fresh observation budgets."""
