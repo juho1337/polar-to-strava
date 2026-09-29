@@ -7,7 +7,7 @@ Specification baseline: `49eded371fd25b01c3b854d537b296b01f4045bb`
 Created: 2026-09-27
 Human approval date: 2026-09-28
 Human approval: Requesting user explicitly approved the implementation choices in plan commit c65c32b8890824567d4542d0062b420f14de5d8c.
-Execution: WP1–WP6 implemented and synthetically verified (2026-09-28); WP7–WP8 incomplete; both execution guards active
+Execution: WP1–WP7 implemented and synthetically verified (2026-09-29); WP8 incomplete; both execution guards active
 
 ## Approved execution sequencing clarification (2026-09-28)
 
@@ -691,14 +691,14 @@ Objective: expose safe actions through existing commands. Files: progress.py/cor
 uploader.py event signatures, tests/test_strava_uploader.py. ACs: AC-05, AC-06, AC-07,
 AC-13, AC-14, AC-16, AC-17. Depends on WP3–WP6.
 
-- [ ] Adapt snapshot/counts/detail rendering and identifier-based progress events.
-- [ ] Route status/dry-run through local state classification without constructing
+- [x] Adapt snapshot/counts/detail rendering and identifier-based progress events.
+- [x] Route status/dry-run through local state classification without constructing
   network clients; render would_submit versus would_observe and independent blockers.
-- [ ] Keep selector/capacity flags; deprecate force modifier as the safe no-op described.
-- [ ] Add `test_status_dry_run_zero_network`, `test_resolution_and_review_counts_overlap`,
+- [x] Keep selector/capacity flags; deprecate force modifier as the safe no-op described.
+- [x] Add `test_status_dry_run_zero_network`, `test_resolution_and_review_counts_overlap`,
   `test_orphan_recovery_outside_eligible_denominator`, `test_force_reset_cannot_resend`,
   `test_cli_details_safe_reasons`, `test_dry_run_observes_changed_fit` and event tests.
-- [ ] Run `python -m pytest tests/test_strava_uploader.py -q`; use CliRunner and
+- [x] Run `python -m pytest tests/test_strava_uploader.py -q`; use CliRunner and
   transport methods that fail the test if any status/dry-run/auth request occurs.
 
 Risk: aggregate totals hide orphan/unknown history. Complete when counts and detail
@@ -882,7 +882,7 @@ This planning sprint changes only this plan, leaves the approved spec untouched,
 runs the repository-required checks plus link/path/reference/privacy checks. Results
 are recorded in the delivery report, not as evidence that the future behavior exists.
 
-Next SDD action: human review of WP4–WP6, then separately authorize WP7–WP8.
+Next SDD action: human review of WP7, then separately authorize WP8.
 Keep both development guards active and do not merge or release.
 
 
@@ -1136,3 +1136,86 @@ authorized guard removal/readiness assessment. The approved spec, AC-01–AC-18,
 schema/version strategy, dependencies and release recommendation are unchanged.
 No real Strava request, real credentials or real migration workspace was used. No
 push, merge or release was performed. Stop here for human review; do not begin WP7.
+
+## Sprint 10.3F execution evidence (2026-09-29)
+
+Implementation commit: `240875c38c55bcf06f966d014d3162286d9ae6f0` on the unmerged
+`spec-001-foundation` branch. WP7 is complete for the authorized synthetic slice.
+SPEC-001 and this plan remain Approved; WP8 and overall compliance remain incomplete.
+Both production guards remain unconditional. No real credentials, Strava requests or
+real migration workspace were used; no push, merge or release was performed.
+
+### Reporting and local preview
+
+- One evidence-based `ProgressSnapshot` consumes typed records and the existing action
+  classifier. Each category counts activities once; independent categories may overlap.
+  Resolved is the union of completed/duplicate activities within the current eligible
+  manifest population, which also supplies the denominator. Retained ineligible and
+  orphan records remain visible outside that population, including outside resolution.
+- Status details expose fixed action, submission, remote and local-blocker reason codes,
+  retained date availability and outside-manifest membership. They omit arbitrary legacy
+  errors, response bodies, private paths and metadata. Identifiers render literally,
+  without terminal control characters or Rich markup interpretation.
+- Dry-run reports `would_submit`, `would_observe`, `blocked/review` and `resolved`.
+  Submission preview verifies local artifacts and reuses the central permission check;
+  it creates no submission intent and promises no later authorization or acceptance.
+  Known-ID observation remains independent of missing/changed artifacts. Preview may
+  persist a discovered local blocker; it never prepares access or constructs a client.
+- Existing selectors remain authoritative. Limits restrict submission candidates only;
+  observations remain included. Missing dates are explained without guessing, with
+  explicit-ID or unfiltered all-selection guidance for retained records.
+- Reset renders the safest classified actions. Deprecated `--force` remains a no-op:
+  attempts, remote IDs, terminal outcomes and uncertainty are preserved.
+- A bounded typed-event renderer displays identifiers absent from the manifest and
+  persisted deferral reasons. It neither changes evidence nor authorizes requests.
+  Notification additions expose local preparation stops and observation deferrals;
+  request ordering, scheduler budgets, permissions and durable writes are unchanged.
+
+Internal presentation compatibility: `snapshot` now accepts typed records rather than
+legacy status totals; dry-run `Uploader.run` returns `ProgressSnapshot`. Existing callers
+and two uploader reporting tests were adapted. The guarded production path remains
+unavailable; no production scheduler composition was introduced.
+
+### Validation and AC evidence
+
+Baseline: 297 passed, zero skips. Added 32 parameterized reporting cases in
+`tests/test_strava_reporting.py`; two existing reporting assertions were adapted in
+`tests/test_strava_uploader.py`, preserving their behavioral intent.
+
+| Evidence | Coverage |
+| --- | --- |
+| AC-16 local actions | Fresh/uncertain/completed/duplicate/bad-FIT previews; no new intent |
+| AC-16 populations | Overlapping review/resolution, multiple attempts counted once, current eligible denominator, ineligible and orphan records |
+| AC-16 selection | Submission-only limit, retained observations, unavailable dates and explicit selection |
+| AC-16 progress | Mocked completion, duplicate, processing failure, artifact blocker, orphan, rate reserve and persisted GET/poll-budget deferrals |
+| AC-05/06/07/13/14 | Known-ID observation with changed/missing FITs; force/non-force reset evidence equality; legacy review-only details |
+| AC-17 | Synthetic private markers excluded; literal identifiers; fixed diagnostic codes |
+| Network isolation and guards | Client construction, credentials, token loading, access preparation, upload, GET and HTTP requests fail immediately in local-command tests; existing direct/CLI guard regressions remain active |
+| Other AC regressions | Existing foundation, response, snapshot, scheduler, crash and transport suites remain active and pass; final per-AC compliance remains WP8 |
+
+Full `python -m pytest`: **329 collected, 329 passed, zero skips/failures** (19.64 s).
+After a local variable rename resolving a mypy inference conflict, the focused reporting,
+uploader and recovery suite passed **95 tests** (3.19 s). Final `ruff check .` passed;
+`black --check .` left all **73 files** unchanged; `mypy .` passed **73 source files**.
+The variable rename did not change runtime behavior. Complete implementation diff and
+privacy/scope review passed, as did `git diff --check`.
+
+### Review, boundaries and next phase
+
+A fresh read-only reviewer found no critical issues and one important reporting gap:
+persisted GET failure or polling-budget reasons were missing from progress events.
+Three regression cases failed before the fix and passed after it. The fix reads the
+persisted deferred attempt reason for presentation only. No second reviewer pass was
+performed; no new design decision or approved-contract deviation was introduced.
+
+SPEC-001, AC-01 through AC-18, approved plan design, durable state/schema/version strategy,
+dependencies, permissions, POST ordering and network orchestration semantics are unchanged.
+The plan changes only record WP7 checkmarks, lifecycle and execution evidence. Historical
+10.3D/10.3E evidence above describes those earlier checkpoints.
+
+Remaining WP8: full user/current-architecture documentation, complete AC compliance and
+POST-call-site review, and separately authorized guard-removal/readiness assessment.
+Live acceptance, hardware power-loss durability, concurrent writers and external stale
+restores are not established by these synthetic tests; prior documented limitations remain.
+This is not a usable production migration release. Stop for human WP7 review and separate
+WP8 authorization; keep both guards active.
