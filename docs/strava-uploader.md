@@ -5,9 +5,10 @@ parses Polar JSON or changes migration eligibility. The uploader is designed to
 prevent automatic duplicate resubmission when an earlier upload's result is uncertain.
 It does not promise exactly-once delivery. Use one process and preserve workspace history.
 
-**Development checkpoint:** production upload remains guarded while final SPEC-001
-compliance is reviewed. Local status, preview and safe reset are available. No controlled
-live acceptance of SPEC-001 has been performed. Do not use this branch for real migration.
+**Verification checkpoint:** both production entry points use the verified recovery
+runner. Synthetic verification and final compliance review passed. Controlled live
+acceptance has not been performed and requires separate human authorization before
+real migration or release.
 
 ## Review local recovery
 
@@ -46,7 +47,7 @@ includes retained recovery work. Optional `--from`/`--to` dates use current or r
 start metadata; a missing date is explained, never guessed. Use explicit ID or `--all`
 without date filters for a record whose date is unavailable.
 
-After production activation and separately authorized live acceptance, rerunning
+After separately authorized live acceptance, rerunning
 `strava upload "<workspace>" --all` resumes only allowed work. Known IDs route to GET,
 review or resolution, never another POST because polling failed. No-ID uncertainty
 remains review-only; there is no remote search or automatic reconciliation feature.

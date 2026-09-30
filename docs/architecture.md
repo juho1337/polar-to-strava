@@ -15,8 +15,8 @@ change is implemented; specs do not replace current architecture documentation.
 
 `polar-to-strava` invokes `core.cli:app`; `python main.py` is the compatibility entry
 point to the same Typer application. `scan`, `inspect`, `convert` and `audit` operate
-locally. `strava auth` exchanges credentials with Strava; production `strava upload` is temporarily guarded during SPEC-001 integration.
-The internal implementation sends FIT and observes uploads with prepared authorization. Status and dry-run
+locally. `strava auth` exchanges credentials with Strava; `strava upload` uses the
+shared recovery runner to send FIT and observe uploads with prepared authorization. Status and dry-run
 make no API requests, but can create/reconcile local SQLite state.
 
 ```mermaid
@@ -264,8 +264,9 @@ snapshot through `UploadClient`; transport does not refresh tokens, wait, reopen
 or retry POST. Response-write failure stops work with committed intent/IDs retained.
 The HTTP client has a separate OAuth token POST, which is not an activity submission.
 
-Both production entry points are currently guarded pending final WP8 compliance.
-The internal runner is exercised using injected synthetic transports and clocks.
+Both production entry points invoke the same recovery runner after the WP8 compliance
+gate passed. CLI and service execution are verified with synthetic transports and
+clocks. Controlled live acceptance remains pending separate human authorization.
 
 Known-ID processing/deferred jobs are independent of local FIT validity and current
 manifest membership. Failed GET never authorizes POST. No-ID uncertainty and processing

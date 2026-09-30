@@ -207,9 +207,9 @@ codes, access tokens, or refresh tokens in an issue.
 
 ## Dry run and upload
 
-Production upload is temporarily guarded pending SPEC-001 final compliance. Local
-status, dry-run and safe reset work; controlled live acceptance has not been performed.
-The real-upload examples below describe the workflow after activation and authorization.
+Production upload is enabled following SPEC-001 synthetic verification and compliance
+review. Controlled live acceptance has not been performed; it requires separate human
+authorization before real migration or release. Local status, dry-run and safe reset work.
 
 Inspect local progress first:
 
@@ -263,7 +263,7 @@ another POST due to a failed poll. No-ID uncertainty and processing failure requ
 review. Reset preserves history; `--force` is a deprecated no-op. Never delete or edit
 `migration-state.sqlite3`, or restore a stale backup to bypass a recovery block.
 
-After activation and separately authorized acceptance, rerunning upload resumes permitted
+After separately authorized live acceptance, rerunning upload resumes permitted
 work. Short API reserves wait, daily reserves and HTTP 429 stop, and observations have
 bounded budgets. See [Resumable Strava uploader](docs/strava-uploader.md) for upgrade,
 backup, restart and compatibility limits. This is not an exactly-once guarantee.

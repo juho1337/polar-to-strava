@@ -73,8 +73,8 @@ to store or use authorization that lacks `activity:write`.
 
 Begin with `python main.py strava status "<workspace>" --details`, then use
 `strava upload "<workspace>" --all --dry-run` for local artifact checks. Both are
-network-free, but can upgrade/reconcile state. Production upload remains guarded while
-SPEC-001 final compliance is pending.
+network-free, but can upgrade/reconcile state. Production execution is enabled after
+SPEC-001 synthetic verification; controlled live acceptance remains separately authorized.
 
 | Finding | Safest next action |
 | --- | --- |
@@ -93,7 +93,7 @@ evidence, restore an old backup, or use force as a resend mechanism.
 
 ### The uploader is waiting for a rate limit
 
-After activation, short-window reserves wait to the next natural quarter-hour plus one
+Short-window reserves wait to the next natural quarter-hour plus one
 second. Ctrl+C stops scheduling while preserving committed evidence. HTTP 429 stops
 the batch. Neither event grants POST permission for an earlier attempt.
 
@@ -105,8 +105,8 @@ later run, without authorizing new submissions or treating remote processing as 
 
 ### The migration was interrupted
 
-Inspect local status/details before resuming. Once production execution is activated and
-live acceptance authorized, repeating `strava upload "<workspace>" --all` restores
+Inspect local status/details before resuming. After separately authorized controlled
+live acceptance, repeating `strava upload "<workspace>" --all` restores
 permitted GETs of known IDs and submits only positively safe candidates. An intent with
 no saved ID remains review-only even if interruption might have preceded transmission.
 Saved completion/duplicate results survive restart and reset.

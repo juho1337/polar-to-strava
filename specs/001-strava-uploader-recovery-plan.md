@@ -2,12 +2,12 @@
 
 Status: Approved
 Specification: [SPEC-001](001-strava-uploader-recovery.md)
-Specification status: Approved
+Specification status: Verified
 Specification baseline: `49eded371fd25b01c3b854d537b296b01f4045bb`
 Created: 2026-09-27
 Human approval date: 2026-09-28
 Human approval: Requesting user explicitly approved the implementation choices in plan commit c65c32b8890824567d4542d0062b420f14de5d8c.
-Execution: WP1–WP7 implemented and synthetically verified (2026-09-29); WP8 incomplete; both execution guards active
+Execution: WP1–WP8 implemented and synthetically verified (2026-09-30); both production guards removed; controlled live acceptance pending
 
 ## Approved execution sequencing clarification (2026-09-28)
 
@@ -711,15 +711,15 @@ Files: architecture/uploader/troubleshooting/workspace/testing docs, README if n
 SPEC-001 Completion evidence after implementation; version metadata only in separately
 authorized release preparation. ACs: all 18. Depends on WP1–WP7.
 
-- [ ] Run required focused/full verification and inspect all POST call sites for the
+- [x] Run required focused/full verification and inspect all POST call sites for the
   authorization/intent requirement; audit no alternate legacy upload path remains.
-- [ ] Update user/current-architecture docs listed below, including schema backup,
+- [x] Update user/current-architecture docs listed below, including schema backup,
   downgrade refusal, reset change and review-only legacy rows.
-- [ ] Perform complete diff/privacy review and explicit per-AC compliance review;
+- [x] Perform complete diff/privacy review and explicit per-AC compliance review;
   record evidence and limitations in SPEC-001 Completion without altering its contract.
-- [ ] Remove the temporary development safety guard only when every preceding package
+- [x] Remove the temporary development safety guard only when every preceding package
   and compliance check passes; verify release-facing CLI uses the integrated safe path.
-- [ ] Commit final integrated result; no push/merge/release without separate request.
+- [x] Commit final integrated result; no push/merge/release without separate request.
 
 Risk: enabling partially integrated code. Completion requires all packages and all
 AC evidence, not merely a passing unit suite or schema migration alone.
@@ -863,15 +863,15 @@ authorized, report that limitation without blocking local automated verification
 
 ## Definition of implementation complete and plan validation
 
-- [ ] WP1–WP8 complete with no bypass POST caller and no partially active old schema path.
-- [ ] Versioned upgrade, conservative legacy mapping, reset and all eight crash
+- [x] WP1–WP8 complete with no bypass POST caller and no partially active old schema path.
+- [x] Versioned upgrade, conservative legacy mapping, reset and all eight crash
   boundaries verified with reopened synthetic state and exact network action evidence.
-- [ ] AC-01 through AC-18 each have recorded evidence; no unexplained deviations.
-- [ ] Focused tests and full `python -m pytest`, `ruff check .`, `black --check .`,
+- [x] AC-01 through AC-18 each have recorded evidence; no unexplained deviations.
+- [x] Focused tests and full `python -m pytest`, `ruff check .`, `black --check .`,
   `mypy .` pass using the repository virtual environment.
-- [ ] Current architecture/user docs updated, full diff/links/privacy/artifact review
+- [x] Current architecture/user docs updated, full diff/links/privacy/artifact review
   passed, and independent final specification compliance review recorded.
-- [ ] SPEC-001 Completion updated only with actual implementation/verification evidence;
+- [x] SPEC-001 Completion updated only with actual implementation/verification evidence;
   lifecycle progresses only when its requirements are met. No automatic release/push.
 
 Planning completeness review: all 18 ACs map above; schema/legacy/permission, reset,
@@ -882,8 +882,8 @@ This planning sprint changes only this plan, leaves the approved spec untouched,
 runs the repository-required checks plus link/path/reference/privacy checks. Results
 are recorded in the delivery report, not as evidence that the future behavior exists.
 
-Next SDD action: human review of WP7, then separately authorize WP8.
-Keep both development guards active and do not merge or release.
+Next SDD action: separately authorized controlled live acceptance.
+Do not merge or release before that acceptance. Execution notes below retain historical checkpoints.
 
 
 ## Sprint 10.3D execution evidence (2026-09-28)
@@ -1339,3 +1339,39 @@ Black unchanged (74 files), mypy passed (74 files), whitespace check clean. Docu
 changes contain no binary/generated/private artifacts. Both guards remained active
 through this checkpoint. This permits the authorized final production composition and
 guard replacement tests; WP8 is not complete until that wiring and final checks pass.
+
+
+### Final activation and verification (2026-09-30)
+
+Readiness gate: **PASS**. Both CLI and service guards were removed in
+`8d979f0d003316196e22a0e72fba0cb5d9580aad` after the complete pre-activation gate above.
+Both entry points now compose the existing safe runner; there is no alternate engine,
+force-resend flag or test-only production bypass. Current operational docs reflect activation.
+The historical guarded checkpoints above are not the current execution status.
+
+Eight active cases in `tests/test_strava_execution.py` replace four parameterized
+temporary-guard cases: each entry point performs one POST/one GET for a fresh activity,
+zero POST/one same-ID GET for known evidence, and zero POST/GET for uncertainty.
+They assert intent through a second database connection before actual mocked transport,
+persisted outcomes, unsupported CLI force and refusal without an injected service client.
+The regression run failed under the guards before activation; focused integration then
+passed 99 tests. Full post-activation validation passed 353 tests, zero skips/failures;
+Ruff passed, Black left 75 files unchanged, and mypy passed 75 files.
+
+A fresh read-only review of the new activation diff found no critical, important or
+minor findings. It checked composition, capacity/reserve options, callbacks, client
+cleanup, local-command isolation and replacement assertions; it did not rerun tests.
+Earlier implementation review was not repeated. Live acceptance, hardware durability,
+concurrent writers and external history restoration remain outside synthetic evidence.
+
+AC-16 production integration now also passes; all AC-01–AC-18 and all ten invariants
+pass. Zero orchestration deferrals remain; all seven original obligations retain active
+equivalents listed above. CURRENT findings, Q1–Q9, AC text and approved design are unchanged.
+The complete final diff, local Markdown links/anchors, whitespace and privacy/artifact
+checks pass. Mermaid structure was manually checked; no renderer was run.
+
+SPEC-001 is Verified under the repository lifecycle. This plan remains Approved with
+WP1–WP8 execution complete. No live acceptance, real API request, real workspace,
+push, merge, release, tag or version change occurred. Next: separately authorized
+controlled live acceptance with a deliberately small known activity in the real
+existing workspace; release remains subsequent work.

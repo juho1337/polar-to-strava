@@ -1,19 +1,21 @@
 # SPEC-001: Strava Uploader Recovery & Idempotency
 
-Status: Approved
+Status: Verified
 Created: 2026-09-27
 Reviewed: 2026-09-27 (Sprint 10.3B human decisions and consistency review)
 Human decisions: Incorporated from Sprint 10.3B (2026-09-27)
 Approval: 2026-09-27 (requesting user explicitly approved the Reviewed behavioral contract)
-Implementation plan: Not created; next SDD phase
+Implementation plan: [Approved plan and execution evidence](001-strava-uploader-recovery-plan.md)
+Verified: 2026-09-30 (synthetic verification and final compliance review; live acceptance pending)
 Supersedes: None
 Investigation baseline: `1499448edfd42a32eb166c05306c607b9d6bf1b0`
 
 This is an investigation and human-reviewed behavioral contract under the
 [SDD workflow](README.md). **CURRENT** describes the baseline implementation;
-**REVIEWED TARGET** describes the selected future behavior, not implemented behavior.
+**REVIEWED TARGET** preserves the approved behavioral contract. Implementation and
+verification evidence are recorded in Completion; CURRENT remains the historical baseline.
 The requesting user explicitly approved this contract on 2026-09-27.
-SPEC-001 is Approved, not Implemented or Verified.
+SPEC-001 is Verified under the SDD lifecycle; this does not claim live acceptance.
 
 ## Problem
 
@@ -234,9 +236,9 @@ message despite these distinctions. These are observable gaps, not new CLI behav
 
 ## Intended behavior
 
-**REVIEWED TARGET**, selected by the human decisions in Sprint 10.3B. This is future
-behavior explicitly approved on 2026-09-27 and awaiting implementation; CURRENT findings above are
-unchanged.
+**REVIEWED TARGET**, selected by the human decisions in Sprint 10.3B and explicitly
+approved on 2026-09-27. Implementation evidence is recorded in Completion; CURRENT
+findings above are unchanged.
 
 **Central invariant:** Never create a new Strava upload while there is evidence that
 an upload may already exist for that migration activity.
@@ -658,8 +660,8 @@ progress and reusable callbacks without exposing secrets or internal schema deta
 
 ## Acceptance criteria
 
-All 18 existing IDs are retained. These define the reviewed future contract, not
-current compliance; no criterion depends on an unresolved review question.
+All 18 existing IDs and their approved contracts are retained unchanged. Per-criterion
+compliance evidence is recorded in Completion; no criterion depends on an unresolved review question.
 
 - **AC-01:** A trustworthy known upload ID routes recovery to the same upload's
   observation or review, never a new POST because its label or observation failed.
@@ -710,6 +712,9 @@ current compliance; no criterion depends on an unresolved review question.
 
 ## Verification
 
+The following is the original approved verification plan and investigation-baseline
+assessment. Its requirements are unchanged; executed evidence is in Completion.
+
 Future tests use synthetic workspaces, reopened SQLite stores, fake clocks, injected
 interruption/persistence failures and mocked HTTP. Verify POST/GET counts and target
 IDs as well as user-visible actions and retained evidence; final labels alone can
@@ -741,7 +746,7 @@ specification compliance review. One test per criterion is not required.
 
 ## Implementation notes
 
-No implementation plan has been created. The future plan selects the versioned
+The [approved implementation plan](001-strava-uploader-recovery-plan.md) records the versioned
 representation, migration mechanics, APIs/classes, bounded retry scheduling and
 artifact-validation mechanism needed for this contract. It must preserve the three
 evidence dimensions rather than weaken the contract to fit schema 1. Exact SQL,
@@ -753,8 +758,8 @@ specification review; it does not authorize silent reinterpretation.
 
 None. Human review resolved Q1-Q9 through the Sprint 10.3B decisions recorded below.
 No approval-blocking behavioral question remains. Technical representation and
-migration mechanics are deliberately deferred to the implementation plan, now
-the next SDD phase following explicit approval of this specification.
+migration mechanics are recorded in the approved implementation plan. The next phase
+is separately authorized controlled live acceptance.
 
 ## Decision log
 
@@ -785,6 +790,10 @@ the next SDD phase following explicit approval of this specification.
   AC-01 through AC-18 are unchanged; implementation planning is the next SDD phase.
   No implementation plan, implementation or verification is recorded by this approval.
 
+- 2026-09-30: WP1–WP8 implementation, synthetic verification and final compliance
+  review completed. All 18 ACs pass with evidence in Completion and the approved plan.
+  Status is Verified; no behavioral change or live acceptance is recorded by this update.
+
 ## Approval-readiness assessment
 
 | Review question | Result and basis |
@@ -801,27 +810,35 @@ the next SDD phase following explicit approval of this specification.
 | Every AC verifiable? | Yes: all 18 map to future evidence including actual POST/GET behavior and reopened state |
 | Remaining choices implementation details? | Yes: exact representation, SQL, scheduling mechanics, integrity mechanism and layout; no undecided permission policy |
 
-**Human approval recorded: 2026-09-27.** Status is Approved, not Implemented or Verified.
+**Human approval recorded: 2026-09-27.** The assessment above records that approval
+checkpoint; subsequent implementation and verification are recorded below.
 
 ## Completion
 
-- Artifact: Sprint 10.3B specification refinement and subsequent explicit human
-  approval recorded; CURRENT investigation and behavioral contract preserved.
-- Implementation and per-AC satisfaction: Not performed; specification approval
-  is complete. All 18 ACs await planning, implementation, automated verification and
-  compliance review.
-- Revision validation (2026-09-27): `python -m pytest` passed 103 tests;
-  `ruff check .`, `black --check .` (60 files) and `mypy .` (60 files) passed.
-  All 20 local links/anchors resolve; all 18 ACs have verification references;
-  no stale open-decision dependencies remain. Both Mermaid diagrams were manually
-  checked. Scope/privacy review found only this specification changed and no personal
-  data, secrets or generated migration artifacts. CURRENT findings compare unchanged.
-  These checks do not verify implementation of the reviewed target.
-- Specification review: Human decisions incorporated; internal consistency and
-  architecture review completed; no remaining approval blockers.
-- Approval/deviations: The requesting user explicitly approved this contract on
-  2026-09-27; no implementation deviations or force-resend policy authorized.
-- Other documentation/runtime: Unchanged. Operational/architecture docs must be
-  updated when the approved behavior is implemented.
-- Next action: Create a separate implementation plan from the approved specification. No push,
-  merge, release, live migration or implementation is part of this sprint.
+- WP1–WP8 implementation and final specification compliance review are complete.
+  Status: Verified on 2026-09-30. The approved contract, Q1–Q9, CURRENT findings and
+  AC-01 through AC-18 remain unchanged; no design deviation was introduced.
+- Implementation history and individual AC evidence are in the
+  [plan compliance table](001-strava-uploader-recovery-plan.md#per-criterion-review-of-the-implemented-recovery-contract).
+  **AC-01–AC-18: PASS**, each mapped to implementation, concrete assertions, documentation
+  and limitations. The final production adapters are covered by eight execution cases.
+- AC-15 correction: `cf6f92d814174619a86c81e30f2e46f180741b15`.
+  Documentation/compliance checkpoint: `cdf471b`.
+  Production guard removal and execution tests: `8d979f0d003316196e22a0e72fba0cb5d9580aad`.
+  Earlier WP1–WP7 commits and evidence are preserved in the plan execution history.
+- Final validation: 353 tests passed, zero skips/failures; Ruff passed, Black left
+  75 files unchanged, and mypy passed 75 files. Local Markdown links/anchors and
+  whitespace checks passed. Mermaid structure was manually checked, not rendered.
+- Independent read-only review found no additional compliance or activation findings;
+  the reviewer did not rerun tests. Complete diff, privacy and scope review passed.
+  Architecture, operations, troubleshooting, setup, privacy, workspace, contributor
+  and testing documentation reflect the implemented contract.
+- Both production guards were removed only after the complete readiness gate passed.
+  No orchestration deferrals or status-based resend path remain. Synthetic CLI/service
+  cases verify fresh POST, known-ID GET and uncertain-state refusal.
+- No live acceptance, real Strava requests, real migration workspace use, push, merge,
+  release, tag or version change was performed. Tests do not establish hardware
+  power-loss durability, concurrent-writer safety, account binding or exactly-once
+  delivery. Intact history and single-process assumptions remain essential.
+- Next action: separately authorized controlled live acceptance using a deliberately
+  small known activity and the existing real workspace. Release remains later work.
