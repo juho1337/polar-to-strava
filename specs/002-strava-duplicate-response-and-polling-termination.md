@@ -1,16 +1,18 @@
 # SPEC-002: Strava Duplicate Response Recognition & Polling Termination
 
-Status: Draft
+Status: Approved
 Created: 2026-09-30
-Approval: Pending human review; proposals below are not authorized behavior
-Implementation plan: Not created
+Reviewed: 2026-09-30 (human decisions resolved and final SPEC-001 consistency review)
+Approval: 2026-09-30 (requesting user explicitly approved Decisions 1–4 and the consistent specification)
+Implementation: Not started
+Implementation plan: Not created; separate document not required for this focused change
 Extends: [SPEC-001](001-strava-uploader-recovery.md)
 Investigation baseline: `5c5ceaa827c2fad87bdc0b6114272fe376b1f86c`
 
 This specification follows the [SDD workflow](README.md). CURRENT describes inspected
-code and separately identified user-reported live observations. TARGET is proposed
-behavior requiring human approval. SPEC-001 remains unchanged and Verified for its
-approved contract; this draft does not retrospectively broaden that contract.
+code and separately identified user-reported live observations. TARGET is the behavior
+approved on 2026-09-30, not implemented behavior. SPEC-001 remains unchanged and Verified
+for its approved contract; SPEC-002 explicitly records the narrow extensions below.
 
 ## Problem
 
@@ -245,7 +247,8 @@ Synthetic fixtures must replace titles, hashes, account information and real pat
 
 ## Relationship to SPEC-001
 
-SPEC-001 remains unchanged in this Draft. Proposed smallest amendments on approval:
+SPEC-001 remains unchanged. The following narrow extensions/clarifications are approved
+through SPEC-002; they identify the affected SPEC-001 wording without silently rewriting it:
 
 - **Authoritative response evidence / AC-06:** supplement the existing complete
   plain-text assertion with the linked grammar above. Current permission to normalize
@@ -258,8 +261,8 @@ SPEC-001 remains unchanged in this Draft. Proposed smallest amendments on approv
   when a duplicate review stop applies; expose bounded-wait reasons/budgets.
 
 No weakening of AC-03, positive POST permission, reset safety or identity invariants
-is proposed. The SPEC-001 plan's observation-blocker mapping and scheduler/reporting
-details would need a small follow-up implementation delta after approval, not a rewrite.
+is authorized. The SPEC-001 plan's observation-blocker mapping and scheduler/reporting
+details require only the focused implementation delta described here, not a rewrite.
 
 ## Acceptance criteria
 
@@ -287,7 +290,7 @@ details would need a small follow-up implementation delta after approval, not a 
 
 Propose synthetic verification, not live calls or mandatory test-first ceremony:
 
-| Criteria | Evidence to produce after approval |
+| Criteria | Evidence to produce during implementation verification |
 | --- | --- |
 | AC-01–03 | Synthetic GET 200/POST 201 linked assertions, matching context, quote/order variants, escaped plain title; client-to-store integration, reopen and exact zero repeat POST/GET; old plain grammar retained |
 | AC-02 | Negation/speculation, unrelated link, `/athletes/123`, zero/negative/abc IDs, multiple links, extra prose, malformed hash/identifier, missing/mismatched echo/context, duplicate attributes, encoded/absolute/query paths, nested markup and completion/identity contradictions |
@@ -298,27 +301,40 @@ Propose synthetic verification, not live calls or mandatory test-first ceremony:
 | AC-07 | Changed/missing artifact and orphan context, failed evidence commit, existing legacy terminal records, synthetic secret/title markers absent from database/events/output |
 
 Run relevant focused and repository-required full checks after implementation, then
-perform per-criterion compliance review. This Draft's validation proves documentation
+perform per-criterion compliance review. This specification's validation proves documentation
 consistency only, not implementation or further live acceptance.
 
 ## Implementation notes
 
-No implementation plan is created. A focused follow-up should retain existing module
+No implementation plan is created. The user approved the lighter workflow:
+Specify -> Human review/approval -> Implement -> Verify -> Compliance review.
+A separate detailed plan is not required unless implementation proves materially more
+complex than currently understood. No such complexity was identified in this review.
+Implementation has not started. A focused follow-up should retain existing module
 boundaries and address matching context, structural recognition, evidence-based stop
 classification and reporting together. Do not merely widen a regex or lower all budgets.
 
 ## Open questions / human decisions
 
-1. Approve the exact linked grammar and required matching `external_id`/local context?
-   Recommendation: yes; missing context reviews rather than accepting looser matches.
-2. Approve persistent duplicate review stops, including existing rows and reset refusal?
-   Recommendation: yes. Same-run-only deferral would repeat the problem on every restart;
-   applying a stop to all review reasons would unnecessarily suppress useful safe GETs.
-3. Approve retaining existing processing budgets without a new wall-clock deadline?
-   Recommendation: yes for this focused change, with visible waits/budgets. A general
-   elapsed-time ceiling is separate work if required; rate waits are not a finite SLA.
-4. Approve conservative retained-capacity accounting and explicit unattempted-work
-   reporting? Recommendation: yes; uncertainty is not proof remote capacity was freed.
+None. The requesting user explicitly resolved all four decisions on 2026-09-30:
+
+1. **Approved — linked duplicate grammar:** all specified attribution, expected
+   identifier, complete assertion and validated href conditions apply. Titles are
+   presentation only; unsupported, speculative, negated or conflicting forms review.
+2. **Approved — persistent review stop:** `duplicate_unrecognized` stops automatic
+   observation across restart/reset while retaining trusted IDs, durable submission
+   evidence and the prohibition on POST. No blanket stop for unrelated review reasons.
+3. **Approved — existing general polling budgets:** genuine processing retains its
+   bounded polling/backoff policy; waiting and backoff must be visibly explained.
+   No general scheduler redesign or new wall-clock deadline is introduced.
+4. **Approved — conservative capacity:** retain current conservative accounting and
+   explain unattempted work. Any implementation-discovered direct contradiction must
+   return to review rather than silently expanding scope into capacity redesign.
+
+Final consistency review: the linked grammar explicitly extends SPEC-001's text-only
+assertion; the persistent stop narrows its optional duplicate reobservation; reporting
+distinguishes retained remote labels from active work. All broader SPEC-001 invariants
+remain authoritative. No additional behavioral decision or approval blocker was found.
 
 ## Future-work recommendation: audit performance
 
@@ -338,11 +354,21 @@ This is explicitly outside SPEC-002 implementation and has no approved solution.
 - 2026-09-30: Proposed seven criteria and four explicit human decisions. None approved;
   no changes to SPEC-001, production code, tests or implementation plan.
 
+- 2026-09-30: The requesting user approved Decisions 1–4. Recorded Reviewed after
+  resolving the decisions and completing the SPEC-001 consistency review, then Approved
+  in the same change under the user's explicit conditional approval. No blockers remain.
+  The seven acceptance criteria and intended behavioral contract are unchanged.
+  A separate implementation-plan document is not required for this focused change;
+  implementation, verification and compliance review are subsequent work.
+
 ## Completion
 
-- Artifact: Draft for human review, not Approved, Implemented or Verified.
+- Artifact: Reviewed and Approved on 2026-09-30; not Implemented or Verified.
+- Human Decisions 1–4 resolved; consistency review found no behavioral contradiction,
+  remaining question or approval blocker. AC-01–AC-07 are unchanged.
 - Implementation/per-AC satisfaction: not performed; verification scenarios proposed.
 - Documentation review: links, scope, privacy, grammar/termination consistency and
   complete diff checked before commit; repository checks reported in delivery.
-- Next action: human review and resolution of the four decisions, then explicit
-  specification approval before implementation. No implementation plan created here.
+- Next action: implement SPEC-002 directly from this approved specification, then
+  verify all seven acceptance criteria and perform a focused compliance review.
+  No implementation or implementation plan was created in this approval task.
