@@ -6,9 +6,9 @@ prevent automatic duplicate resubmission when an earlier upload's result is unce
 It does not promise exactly-once delivery. Use one process and preserve workspace history.
 
 **Verification checkpoint:** both production entry points use the verified recovery
-runner. Synthetic verification and final compliance review passed. Controlled live
-acceptance has not been performed and requires separate human authorization before
-real migration or release.
+runner. SPEC-001 live acceptance exposed the response variant addressed by SPEC-002.
+SPEC-002 live acceptance remains separately authorized; synthetic checks do not establish
+real API acceptance or release readiness.
 
 ## Review local recovery
 
@@ -52,6 +52,11 @@ After separately authorized live acceptance, rerunning
 review or resolution, never another POST because polling failed. No-ID uncertainty
 remains review-only; there is no remote search or automatic reconciliation feature.
 Authoritative processing failure also remains review-only, retaining its ID and outcome.
+`duplicate_unrecognized` now stops automatic GET as well as POST, including after
+restart and reset. The known upload ID and historical remote label remain evidence;
+`processing` does not mean that this stopped attempt is still being polled. Old records
+with this reason also stop. An upgrade alone cannot resolve them: the original response
+was not stored. Preserve them for separately authorized diagnosis; do not reset/resend.
 
 The synchronous scheduler defaults to three remote jobs (`--max-in-flight`, range 1–10).
 Restored known jobs are retained even above a reduced capacity. Deferred remote work
@@ -60,6 +65,12 @@ first poll waits two seconds (minimum one); restored jobs are immediately due un
 rate policy. Backoff doubles to thirty seconds. Each job has at most sixty GETs per run
 and three consecutive network/server failures; successful pending observation resets
 the failure counter. These are GET budgets, never POST retry counters.
+Waiting reports show processing/transient backoff, next eligible GET time and remaining
+GET/consecutive-failure budgets; rate-reserve waits retain their resume-time notice.
+The final batch summary reports review/deferred observations and selected submissions
+left unattempted because of retained capacity or a run stop. Review-stopped jobs retain
+capacity conservatively. `--limit` is neither a success count nor a wall-clock deadline;
+sixty polls can span about 28.5 minutes before request time and rate waits.
 
 Overall and read-specific response headers drive `--rate-limit-reserve` (default ten).
 Short reserves wait to the next natural quarter-hour plus one second; daily reserves
@@ -110,8 +121,15 @@ dependent. Size alone is never integrity proof. No measurement is reconstructed 
 
 Unexpected HTTP errors cannot establish completion. Their IDs are considered only within
 an attributable upload envelope; generic error IDs do not become observation targets.
-New duplicates require the narrow complete documented assertion, consistent identity and
-processing-error status. Unknown wording requires review. Raw payloads are not persisted.
+New duplicates require a narrow complete assertion, consistent identity and processing-error
+status. Existing plain-text recognition remains supported. The additional SPEC-002 form
+requires the exact expected `sha256:<64 lowercase hex>.fit` identifier in both the error
+prefix and external ID, correlated with native durable submission context, and exactly
+one activity link with a canonical `/activities/<positive decimal ID>` href. Identity
+comes from that href, never the title. Extra prose, malformed/multiple links, conflicts
+and unexpected HTTP cannot produce a linked duplicate. Missing legacy context reviews.
+Unknown duplicate wording stops automatic observation; raw payloads/titles are not
+persisted. See [SPEC-002](../specs/002-strava-duplicate-response-and-polling-termination.md).
 
 Keep state, backups, temporary artifacts and tokens private. Backups retain old private
 diagnostics; current state uses fixed reason codes and validated IDs. Token storage is

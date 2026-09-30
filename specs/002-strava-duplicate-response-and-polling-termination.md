@@ -1,17 +1,18 @@
 # SPEC-002: Strava Duplicate Response Recognition & Polling Termination
 
-Status: Approved
+Status: Verified
 Created: 2026-09-30
 Reviewed: 2026-09-30 (human decisions resolved and final SPEC-001 consistency review)
 Approval: 2026-09-30 (requesting user explicitly approved Decisions 1–4 and the consistent specification)
-Implementation: Not started
+Implementation: 45a5ae1c842612101a9ca02adeed811088cb33d2
+Verified: 2026-09-30 (synthetic verification and focused compliance review; live acceptance pending)
 Implementation plan: Not created; separate document not required for this focused change
 Extends: [SPEC-001](001-strava-uploader-recovery.md)
 Investigation baseline: `5c5ceaa827c2fad87bdc0b6114272fe376b1f86c`
 
 This specification follows the [SDD workflow](README.md). CURRENT describes inspected
 code and separately identified user-reported live observations. TARGET is the behavior
-approved on 2026-09-30, not implemented behavior. SPEC-001 remains unchanged and Verified
+approved on 2026-09-30; implementation evidence is recorded in Completion. SPEC-001 remains unchanged and Verified
 for its approved contract; SPEC-002 explicitly records the narrow extensions below.
 
 ## Problem
@@ -310,8 +311,8 @@ No implementation plan is created. The user approved the lighter workflow:
 Specify -> Human review/approval -> Implement -> Verify -> Compliance review.
 A separate detailed plan is not required unless implementation proves materially more
 complex than currently understood. No such complexity was identified in this review.
-Implementation has not started. A focused follow-up should retain existing module
-boundaries and address matching context, structural recognition, evidence-based stop
+Implementation is recorded in Completion. The focused change retains existing module
+boundaries and addresses matching context, structural recognition, evidence-based stop
 classification and reporting together. Do not merely widen a regex or lower all budgets.
 
 ## Open questions / human decisions
@@ -361,14 +362,69 @@ This is explicitly outside SPEC-002 implementation and has no approved solution.
   A separate implementation-plan document is not required for this focused change;
   implementation, verification and compliance review are subsequent work.
 
+- 2026-09-30: Implemented the approved contract in `45a5ae1c842612101a9ca02adeed811088cb33d2`.
+  After synthetic verification and focused compliance review, lifecycle advanced through
+  Implemented to Verified. No behavioral amendment, schema change or plan was required.
+  SPEC-001 and all seven SPEC-002 acceptance criteria remain unchanged.
+
 ## Completion
 
-- Artifact: Reviewed and Approved on 2026-09-30; not Implemented or Verified.
-- Human Decisions 1–4 resolved; consistency review found no behavioral contradiction,
-  remaining question or approval blocker. AC-01–AC-07 are unchanged.
-- Implementation/per-AC satisfaction: not performed; verification scenarios proposed.
-- Documentation review: links, scope, privacy, grammar/termination consistency and
-  complete diff checked before commit; repository checks reported in delivery.
-- Next action: implement SPEC-002 directly from this approved specification, then
-  verify all seven acceptance criteria and perform a focused compliance review.
-  No implementation or implementation plan was created in this approval task.
+- Implementation: `45a5ae1c842612101a9ca02adeed811088cb33d2`.
+- Lifecycle: Verified on 2026-09-30; controlled live acceptance has not been performed
+  for this implementation. Human approval metadata and approved behavior are preserved.
+
+| Criterion | Implementation and synthetic evidence | Result |
+| --- | --- | --- |
+| AC-01 | `responses.linked_duplicate_id`, client expected-context propagation, stored native-attempt context; `test_linked_grammar_positive`, `test_http_composition_reset_restart` including immediate POST duplicate | PASS |
+| AC-02 | Full assertion/attribute/path checks before href identity, existing attribution/conflict gates; `test_linked_grammar_negative`, `test_linked_context_and_conflicts`, `test_missing_or_invalid_expected_context`, `test_linked_unexpected_http_cannot_resolve`; all existing response/attribution regressions retained | PASS |
+| AC-03 | Existing transactional terminal evidence; HTTP composition/reopen/reset cases assert duplicate IDs and zero repeated POST/GET; `test_linked_result_write_failure_preserves_get_only_restart` verifies failure/recovery | PASS |
+| AC-04 | `recovery.duplicate_review_stop` gates GET from retained codes/blockers, independent of old active/observation flags; `test_old_duplicate_evidence_ignores_obsolete_blocker_flags`, HTTP unknown/reset/reopen cases | PASS |
+| AC-05 | Existing scheduler restoration/capacity and budgets, with stopped jobs inactive; `test_five_selected_batch_terminates`, `test_wait_and_capacity_reporting`; existing scheduler and crash tests retain genuine-processing, rate, interruption and restart guarantees | PASS |
+| AC-06 | Typed review-ID/wait/budget/batch events, live renderer and local action output; `test_wait_and_capacity_reporting`, `test_transient_wait_reports_both_remaining_budgets`, `test_stopped_duplicate_local_cli_is_network_free`; existing reporting and CLI execution cases | PASS |
+| AC-07 | No schema or raw-payload persistence additions; native context survives orphan/artifact removal while legacy context is refused; `test_orphaned_native_attempt_retains_matching_context`, `test_legacy_attempt_cannot_invent_linked_identifier_context`, write-failure test and private-title/database assertions; existing persistence/attribution/privacy tests | PASS |
+
+New `tests/test_spec002.py`: **61 passed**. Final complete suite: **414 passed,
+zero skips/failures** (22.60 seconds). Ruff passed; Black left **76 files** unchanged;
+mypy passed **76 source files**. Existing tests retain their assertions; only two fake
+transport signatures gained optional expected-identifier context. No test was deferred.
+Local Markdown links/anchors, whitespace, complete diff and privacy/scope checks passed.
+No diagrams were changed and no renderer was run.
+
+Focused review covered grammar, expected identity, attribution/conflicts, persistent
+stops, reset/restart, mixed batches, genuine processing, reporting/privacy and SPEC-001
+invariants. An independent read-only reviewer found a missing known-upload-ID/local-stop
+reporting requirement. Fixed by carrying safe IDs through typed decisions/events and
+displaying explicit stop details; new local/network-isolation and event assertions pass.
+The reviewer did not run tests or repeat the review. Executor inspection and verification
+confirmed the fix. Additional review-requested evidence covers linked unexpected HTTP,
+legacy/orphan context, evidence-write failure and transient remaining budgets. Existing
+rate-wait tests support unchanged rate behavior; no new rate-policy design is claimed.
+
+Initial focused verification also caught a batch-summary regression hiding the last
+activity reason; the summary now retains that reason. Existing reporting tests pass
+unchanged. No unresolved compliance blocker or behavioral deviation remains.
+
+README, uploader operations, troubleshooting, architecture, testing guidance and the
+specification index were updated. No SPEC-001 behavioral text was changed. State schema,
+general polling budgets, backoff, capacity policy, dependencies and version are unchanged.
+
+Limitations: old review-stopped records cannot become resolved simply by upgrading;
+their raw response was deliberately discarded. Missing trusted legacy context reviews.
+New server variants remain conservative. There is no wall-clock SLA across quota waits,
+no exactly-once guarantee and no support for concurrent writers or erased history.
+Audit-performance optimization remains future work above.
+
+No real credentials, Strava requests, OAuth or real migration workspace access occurred.
+No reset/resend of real activities, push, merge, tag, release or version change occurred.
+
+Next separately authorized action: controlled live acceptance. First privately back up
+the real workspace, then review local status and dry-run for explicit selected IDs
+(these local commands may reconcile state). Existing `duplicate_unrecognized` rows must
+remain review-only with zero automatic POST/GET; do not reset them to exercise recognition.
+To exercise linked recognition, authorize a separate GET-only diagnostic of a trusted
+known upload with locally established native context, using a valid token and no refresh,
+retry, redirect or persistence unless separately requested. Use the new parser in memory;
+check retained upload identity and href-derived duplicate result. If a full normal-path
+upload is desired, separately approve one known safe fresh activity after preview, then
+check terminal state and zero repeat submission on a later explicit selection. Stop on
+unexpected evidence. No such acceptance operation is authorized by this completion record.

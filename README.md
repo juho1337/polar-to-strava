@@ -207,9 +207,9 @@ codes, access tokens, or refresh tokens in an issue.
 
 ## Dry run and upload
 
-Production upload is enabled following SPEC-001 synthetic verification and compliance
-review. Controlled live acceptance has not been performed; it requires separate human
-authorization before real migration or release. Local status, dry-run and safe reset work.
+Production upload is enabled following SPEC-001 verification. SPEC-002 adds narrow
+linked-duplicate recognition and persistent stops for unrecognized duplicates. Its live
+acceptance requires separate human authorization before further migration or release. Local status, dry-run and safe reset work.
 
 Inspect local progress first:
 
@@ -260,7 +260,8 @@ Missing retained dates are explained; use explicit ID or unfiltered `--all` sele
 The uploader is designed to prevent automatic duplicate resubmission when the result of
 an earlier upload is uncertain. Known upload IDs route to observation or review, never
 another POST due to a failed poll. No-ID uncertainty and processing failure require
-review. Reset preserves history; `--force` is a deprecated no-op. Never delete or edit
+review. `duplicate_unrecognized` stops automatic observation across restart/reset,
+while retaining the upload ID for separately authorized diagnosis. Reset preserves history; `--force` is a deprecated no-op. Never delete or edit
 `migration-state.sqlite3`, or restore a stale backup to bypass a recovery block.
 
 After separately authorized live acceptance, rerunning upload resumes permitted

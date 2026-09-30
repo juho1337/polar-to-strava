@@ -266,7 +266,7 @@ The HTTP client has a separate OAuth token POST, which is not an activity submis
 
 Both production entry points invoke the same recovery runner after the WP8 compliance
 gate passed. CLI and service execution are verified with synthetic transports and
-clocks. Controlled live acceptance remains pending separate human authorization.
+clocks. SPEC-002 live acceptance remains pending separate human authorization.
 
 Known-ID processing/deferred jobs are independent of local FIT validity and current
 manifest membership. Failed GET never authorizes POST. No-ID uncertainty and processing
@@ -279,6 +279,17 @@ Polling starts at two seconds for new jobs, immediately for restored ones, doubl
 thirty seconds, and is bounded to sixty actual GETs and three consecutive transient
 failures per job/run. Successful pending GET resets the consecutive-failure count.
 There is no generic POST retry loop or status-based resend path.
+
+SPEC-002 linked duplicates require trusted native attempt identity plus matching external
+identifier, attributed upload identity and a complete strictly validated activity anchor.
+The title is presentation only; no raw HTML is persisted. Missing legacy provenance
+cannot be reconstructed from an echoed server identifier. The client accepts optional
+expected identifier context supplied from the stored attempt, independently of FIT paths.
+`duplicate_unrecognized` is a persistent automatic-observation stop even for old rows
+whose blocker flags allowed GET. Permission classification checks retained codes/blockers;
+no schema migration is needed. Reset cannot remove this stop. Retained remote capacity
+and genuine-processing budgets are unchanged. Typed progress events carry review upload
+IDs, wait time/budgets and final batch counts without storing private response text.
 
 Schema 1 upgrades atomically after a private SQLite backup; version is updated last.
 Conservative mapping never invents erased history. Unsupported/corrupt/partial schemas

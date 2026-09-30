@@ -79,6 +79,7 @@ SPEC-001 synthetic verification; controlled live acceptance remains separately a
 | Finding | Safest next action |
 | --- | --- |
 | Needs review / uncertain submission | Preserve state. An earlier POST may have succeeded. No-ID uncertainty has no automatic search, resend or reconciliation. Inspect the remote situation privately and request diagnosis; checking Strava does not itself authorize resend. |
+| Unrecognized duplicate | `duplicate_unrecognized` preserves the known upload ID but stops automatic GET and POST across restart/reset. Historical `processing` is not active polling. Inspect local details for the ID; preserve state and request separately authorized read-only diagnosis. Upgrading the parser does not resolve old records without their discarded response evidence. |
 | Processing failure | Preserve the failed upload ID and result. Ordinary reset, artifact repair and reauthorization cannot authorize another POST. |
 | Missing/changed FIT | Review or regenerate the artifact through the audit workflow, then use safe reset to verify the correction. Known-ID observation remains independent of that file. |
 | Orphaned retained record | Use its stable ID or unfiltered `--all`; it remains visible outside the eligible denominator. Date filters cannot select a record with no reliable retained date. |
@@ -92,6 +93,11 @@ history. `--force` is deprecated and changes nothing. Never delete/edit SQLite, 
 evidence, restore an old backup, or use force as a resend mechanism.
 
 ### The uploader is waiting for a rate limit
+
+Processing/transient backoff reports the next eligible GET and remaining budgets.
+Unrecognized duplicates require review and do not consume the remaining polling budget.
+A finished batch may leave selected submissions unattempted because retained remote work
+occupies capacity; the final summary explains this.
 
 Short-window reserves wait to the next natural quarter-hour plus one
 second. Ctrl+C stops scheduling while preserving committed evidence. HTTP 429 stops
