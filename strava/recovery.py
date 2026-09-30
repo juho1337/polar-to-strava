@@ -206,6 +206,8 @@ class RecoveryEvent:
     batch_review: int = 0
     batch_observing: int = 0
     batch_stopped: bool = False
+    batch_capacity_jobs: int = 0
+    batch_review_stops: int = 0
 
 
 def _submission_reasons(record: RecoveryRecord) -> list[Code]:
@@ -271,6 +273,19 @@ def duplicate_review_stop(record: RecoveryRecord, attempt: AttemptRecord) -> boo
         b.code == Code.DUPLICATE_UNRECOGNIZED
         and b.scope in {"activity", f"attempt:{attempt.attempt_id}"}
         for b in record.blockers
+    )
+
+
+def consumes_submission_capacity(record: RecoveryRecord, attempt: AttemptRecord) -> bool:
+    """Retain remote capacity except for SPEC-002's persistent duplicate review stop.
+
+    This predicate grants neither submission nor observation permission. In particular,
+    temporary observation refusal does not prove that remote processing has stopped.
+    """
+    return (
+        bool(attempt.upload_id)
+        and attempt.remote in {Remote.PROCESSING, Remote.DEFERRED}
+        and not duplicate_review_stop(record, attempt)
     )
 
 

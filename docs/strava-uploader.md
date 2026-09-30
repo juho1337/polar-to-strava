@@ -59,7 +59,7 @@ with this reason also stop. An upgrade alone cannot resolve them: the original r
 was not stored. Preserve them for separately authorized diagnosis; do not reset/resend.
 
 The synchronous scheduler defaults to three remote jobs (`--max-in-flight`, range 1–10).
-Restored known jobs are retained even above a reduced capacity. Deferred remote work
+Restored capacity-consuming jobs are retained even above a reduced capacity. Deferred remote work
 continues to consume capacity; a stalled run exits rather than spinning. A new job's
 first poll waits two seconds (minimum one); restored jobs are immediately due under
 rate policy. Backoff doubles to thirty seconds. Each job has at most sixty GETs per run
@@ -68,8 +68,13 @@ the failure counter. These are GET budgets, never POST retry counters.
 Waiting reports show processing/transient backoff, next eligible GET time and remaining
 GET/consecutive-failure budgets; rate-reserve waits retain their resume-time notice.
 The final batch summary reports review/deferred observations and selected submissions
-left unattempted because of retained capacity or a run stop. Review-stopped jobs retain
-capacity conservatively. `--limit` is neither a success count nor a wall-clock deadline;
+left unattempted because of retained capacity or a run stop. Persistent duplicate review
+stops consume no capacity and receive no automatic POST or GET, including after restart
+or reset. Three such stops therefore do not prevent five fresh selected activities
+from progressing through a capacity-three scheduler. Genuine processing and temporary
+network/rate deferrals still retain capacity. Status distinguishes workspace-wide
+capacity-consuming attempt counts from duplicate review stops and activity categories;
+final batch counts apply to the selected batch. `--limit` is neither a success count nor a wall-clock deadline;
 sixty polls can span about 28.5 minutes before request time and rate waits.
 
 Overall and read-specific response headers drive `--rate-limit-reserve` (default ten).

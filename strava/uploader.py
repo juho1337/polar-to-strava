@@ -22,6 +22,8 @@ from strava.recovery import (
     RecoveryEvent,
     Remote,
     classify_actions,
+    consumes_submission_capacity,
+    duplicate_review_stop,
     observation_permission,
     submission_permission,
 )
@@ -293,11 +295,9 @@ class _RecoveryRunner:
         for identifier in identifiers:
             record = self.store.load(identifier)
             for attempt in record.attempts:
-                if not attempt.upload_id or attempt.remote not in {
-                    Remote.PROCESSING,
-                    Remote.DEFERRED,
-                }:
+                if not consumes_submission_capacity(record, attempt):
                     continue
+                assert attempt.upload_id is not None
                 retained.add(attempt.attempt_id)
                 if attempt.attempt_id not in jobs:
                     jobs[attempt.attempt_id] = ProcessingJob(
@@ -445,6 +445,14 @@ class _RecoveryRunner:
                         {a.stable_activity_id for a in result if a.kind == Action.OBSERVE}
                     ),
                     batch_stopped=self.stopped,
+                    batch_capacity_jobs=len(jobs),
+                    batch_review_stops=sum(
+                        duplicate_review_stop(record, attempt)
+                        for identifier in identifiers
+                        for record in (self.store.load(identifier),)
+                        for attempt in record.attempts
+                        if attempt.remote in {Remote.PROCESSING, Remote.DEFERRED}
+                    ),
                 )
             )
         return result

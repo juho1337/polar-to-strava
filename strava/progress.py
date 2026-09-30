@@ -20,6 +20,8 @@ from strava.recovery import (
     RecoveryRecord,
     Remote,
     classify_actions,
+    consumes_submission_capacity,
+    duplicate_review_stop,
 )
 
 ACTION_LABELS = {
@@ -55,6 +57,8 @@ class ProgressSnapshot:
     outside_current_eligible: int
     outside_manifest: int
     outside_resolved: int
+    capacity_jobs: int = 0
+    duplicate_review_stops: int = 0
 
     @property
     def remaining(self) -> int:
@@ -73,7 +77,15 @@ def snapshot(manifest: MigrationManifest, records: Iterable[RecoveryRecord]) -> 
     duplicates: set[str] = set()
     local: set[str] = set()
     identifiers: set[str] = set()
+    capacity_jobs = 0
+    review_stops = 0
     for record in records:
+        capacity_jobs += sum(consumes_submission_capacity(record, a) for a in record.attempts)
+        review_stops += sum(
+            duplicate_review_stop(record, a)
+            for a in record.attempts
+            if a.remote in {Remote.PROCESSING, Remote.DEFERRED}
+        )
         identifier = record.stable_activity_id
         identifiers.add(identifier)
         actions = classify_actions(record)
@@ -101,6 +113,8 @@ def snapshot(manifest: MigrationManifest, records: Iterable[RecoveryRecord]) -> 
         outside_current_eligible=len(identifiers - eligible),
         outside_manifest=len(identifiers - present),
         outside_resolved=len(resolved - eligible),
+        capacity_jobs=capacity_jobs,
+        duplicate_review_stops=review_stops,
     )
 
 
@@ -127,6 +141,8 @@ def progress_table(
         ("Ready to submit", progress.ready_to_submit),
         ("Observing", progress.observing),
         ("Needs review / blocked", progress.needs_review),
+        ("Capacity-consuming remote jobs (workspace)", progress.capacity_jobs),
+        ("Duplicate review stops (no capacity)", progress.duplicate_review_stops),
         ("Local blockers", progress.local_blocked),
         ("Retained outside current eligible", progress.outside_current_eligible),
         ("Outside manifest", progress.outside_manifest),
@@ -144,9 +160,7 @@ def progress_table(
             table.add_row("Read daily", f"{rate.read_daily_usage} / {rate.read_daily_limit}")
     if current:
         table.add_row("Current", literal(current))
-    table.caption = (
-        "Counts are activities. Recovery categories cover all retained records and may overlap."
-    )
+    table.caption = "Recovery categories count activities and may overlap; capacity/review-stop counts are attempts. Workspace counts may exceed the selected batch."
     return table
 
 
@@ -261,6 +275,8 @@ class RecoveryProgressRenderer:
                 current += (
                     f"; Batch finished: {event.batch_review} need review; "
                     f"{event.batch_observing} observations retained/deferred; "
+                    f"{event.batch_capacity_jobs} capacity-consuming jobs; "
+                    f"{event.batch_review_stops} duplicate review stops (no capacity); "
                     f"{event.batch_unattempted} selected submissions unattempted"
                 )
                 if event.batch_unattempted:

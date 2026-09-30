@@ -273,7 +273,7 @@ manifest membership. Failed GET never authorizes POST. No-ID uncertainty and pro
 failure require review. Reset clears only verified corrected local/access conditions;
 it cannot erase history, and `--force` is a deprecated no-op.
 
-The synchronous scheduler defaults to three jobs and restores all selected known IDs
+The synchronous scheduler defaults to three jobs and restores selected capacity-consuming known IDs
 even at lower capacity. Deferred jobs retain capacity; no-progress runs terminate.
 Polling starts at two seconds for new jobs, immediately for restored ones, doubles to
 thirty seconds, and is bounded to sixty actual GETs and three consecutive transient
@@ -287,8 +287,10 @@ cannot be reconstructed from an echoed server identifier. The client accepts opt
 expected identifier context supplied from the stored attempt, independently of FIT paths.
 `duplicate_unrecognized` is a persistent automatic-observation stop even for old rows
 whose blocker flags allowed GET. Permission classification checks retained codes/blockers;
-no schema migration is needed. Reset cannot remove this stop. Retained remote capacity
-and genuine-processing budgets are unchanged. Typed progress events carry review upload
+no schema migration is needed. Reset cannot remove this stop. The separate
+`consumes_submission_capacity` predicate excludes persistent duplicate review stops
+without granting POST or GET permission. Genuine processing and temporary deferrals
+retain capacity; genuine-processing budgets are unchanged. Typed progress events carry review upload
 IDs, wait time/budgets and final batch counts without storing private response text.
 
 Schema 1 upgrades atomically after a private SQLite backup; version is updated last.

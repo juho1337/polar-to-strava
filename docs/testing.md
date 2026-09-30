@@ -117,7 +117,7 @@ python -m pytest tests/test_training_session.py tests/test_sprint81.py
 python -m pytest tests/test_fit_export.py tests/test_tcx_integration.py
 python -m pytest tests/test_audit.py tests/test_audit_progress.py
 python -m pytest tests/test_strava_uploader.py
-python -m pytest tests/test_spec002.py tests/test_strava_responses.py tests/test_strava_attribution.py tests/test_strava_scheduler.py tests/test_strava_reporting.py
+python -m pytest tests/test_spec002.py tests/test_spec002_capacity.py tests/test_strava_responses.py tests/test_strava_attribution.py tests/test_strava_scheduler.py tests/test_strava_reporting.py
 ```
 
 Changes to manifests/versions, stable identity, FIT/TCX generation, eligibility, uploader

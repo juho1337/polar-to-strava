@@ -277,16 +277,21 @@ def test_wait_and_capacity_reporting(tmp_path: Path) -> None:
             on_event=events.append,
         )
         uploader.run(uploader.select(limit=5))
-        assert len(client.posts) == 3 and len(client.gets) == 3
+        assert len(client.posts) == 5 and len(client.gets) == 5
         waits = [e for e in events if e.next_poll_at is not None]
         assert waits and waits[0].polls_remaining == 60 and waits[0].failures_remaining == 3
-        assert events[-1].batch_unattempted == 2 and events[-1].batch_review == 3
+        assert events[-1].batch_unattempted == 0 and events[-1].batch_review == 5
+        assert events[-1].batch_capacity_jobs == 0 and events[-1].batch_review_stops == 5
         renderer = RecoveryProgressRenderer(uploader.manifest, store.records)
         for event, words in [
             (waits[0], ["next GET", "GET budget remaining", "processing_backoff"]),
             (
                 events[-1],
-                ["Batch finished", "2 selected submissions unattempted", "retained capacity"],
+                [
+                    "Batch finished",
+                    "0 selected submissions unattempted",
+                    "5 duplicate review stops (no capacity)",
+                ],
             ),
         ]:
             renderer.update(event)

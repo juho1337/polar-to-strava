@@ -97,7 +97,10 @@ evidence, restore an old backup, or use force as a resend mechanism.
 Processing/transient backoff reports the next eligible GET and remaining budgets.
 Unrecognized duplicates require review and do not consume the remaining polling budget.
 A finished batch may leave selected submissions unattempted because retained remote work
-occupies capacity; the final summary explains this.
+occupies capacity; the final summary explains this. Persistent duplicate review stops
+are excluded from capacity even after restart/reset, while genuine processing and
+temporary network/rate deferrals remain capacity-consuming. Exclusion does not authorize
+POST or automatic GET for the stopped activity and does not remove its evidence.
 
 Short-window reserves wait to the next natural quarter-hour plus one
 second. Ctrl+C stops scheduling while preserving committed evidence. HTTP 429 stops
