@@ -1,12 +1,12 @@
 # SPEC-002: Strava Duplicate Response Recognition & Polling Termination
 
-Status: Approved
+Status: Verified
 Created: 2026-09-30
 Reviewed: 2026-09-30 (human decisions resolved and final SPEC-001 consistency review)
 Approval: 2026-09-30 (requesting user explicitly approved Decisions 1–4 and the consistent specification)
 Amendment approval: 2026-10-01 (requesting user explicitly approved persistent duplicate review-stop capacity exclusion)
-Implementation: Prior revision implemented in 45a5ae1c842612101a9ca02adeed811088cb33d2; capacity amendment not implemented
-Prior revision verified: 2026-09-30; amended revision verification pending
+Implementation: Prior revision implemented in 45a5ae1c842612101a9ca02adeed811088cb33d2; capacity amendment implemented in 851034963af9c45fbd55473cda482c7b802ee944
+Prior revision verified: 2026-09-30; amended revision verified: 2026-10-01
 Implementation plan: Not created; separate document not required for this focused change
 Extends: [SPEC-001](001-strava-uploader-recovery.md)
 Investigation baseline: `5c5ceaa827c2fad87bdc0b6114272fe376b1f86c`
@@ -14,7 +14,7 @@ Investigation baseline: `5c5ceaa827c2fad87bdc0b6114272fe376b1f86c`
 This specification follows the [SDD workflow](README.md). CURRENT describes inspected
 code and separately identified user-reported live observations. TARGET is the behavior
 approved on 2026-09-30 and narrowly amended on 2026-10-01. Prior implementation
-evidence is historical; the capacity amendment is not implemented. SPEC-001 remains unchanged and Verified
+evidence is historical; the capacity amendment is implemented and synthetically verified. SPEC-001 remains unchanged and Verified
 for its approved contract; SPEC-002 explicitly records the narrow extensions below.
 
 ## Problem
@@ -414,15 +414,71 @@ This is explicitly outside SPEC-002 implementation and has no approved solution.
   the prior Verified result remains historical. No implementation, tests, workspace
   access, network requests or separate implementation plan belong to this amendment.
 
+- 2026-10-01: Implemented the approved capacity amendment in
+  `851034963af9c45fbd55473cda482c7b802ee944`. Full synthetic verification and independent
+  focused compliance review passed. Advanced the amended revision through Implemented
+  to Verified without changing the approved criteria or SPEC-001.
+
 ## Completion
 
-- Current revision: capacity amendment Approved on 2026-10-01; not implemented or
-  verified. AC-05 and the capacity-reporting clarification in AC-06 require new evidence.
-- Next action: separately authorize a focused implementation of this approved amendment,
-  verify the reopened three-stop/five-fresh scenario and all seven criteria, then perform
-  compliance review before further separately authorized live acceptance.
-- Amendment-only validation: local links/anchors, complete diff and whitespace checks;
-  production code, tests and SPEC-001 remain unchanged.
+Current amended revision: **Verified on 2026-10-01**. Amendment approval remains
+2026-10-01; original approval and historical verification remain recorded separately.
+The pre-existing approved amendment was preserved in
+`bb3e75d58588420599ead000652769978616484c` before implementation.
+
+### Verification of the 2026-10-01 capacity amendment
+
+| Criterion | Current synthetic evidence | Result |
+| --- | --- | --- |
+| AC-01 | Existing linked grammar positives and HTTP composition tests pass unchanged | PASS |
+| AC-02 | Existing negative grammar, conflicts, context and unexpected HTTP tests pass unchanged | PASS |
+| AC-03 | Existing terminal evidence, write-failure, reset and restart tests pass unchanged | PASS |
+| AC-04 | Existing persistent stop and obsolete-blocker tests; reopened stops receive no POST/GET | PASS |
+| AC-05 | `test_three_persisted_stops_allow_five_fresh_with_capacity_three` (normal/reset/force); retained processing/network/rate cases in `test_actionable_retained_jobs_still_hold_lower_restart_capacity`; `test_capacity_does_not_follow_generic_observation_refusal` | PASS |
+| AC-06 | Updated `test_wait_and_capacity_reporting`; new snapshot and final-event capacity/review-stop assertions; existing local CLI, wait budgets and reporting tests pass | PASS |
+| AC-07 | Existing privacy, provenance, persistence and attribution tests pass unchanged; no new schema or raw response persistence | PASS |
+
+The mandatory regression closes and reopens SQLite after persisting three confirmed
+processing attempts with `duplicate_unrecognized`. All five fresh activities complete
+with exactly five synthetic POSTs and five GETs, peak active capacity three. Stopped
+upload IDs receive zero POST/GET; their attempt and blocker evidence remains equal.
+Another restart issues no additional requests. Normal reset and force-reset variants
+preserve these results. Three genuinely processing, network-deferred or rate-deferred
+jobs retain all three slots after reopening at a lower configured capacity of one;
+no fresh POST is admitted. Generic observation denial does not release capacity.
+
+Submission and observation permissions are unchanged. The separate pure
+`consumes_submission_capacity` predicate excludes only persistent duplicate review
+stops from retained processing/deferred jobs. Status shows workspace attempt counts
+separately from activity categories; final batch summaries report selected-batch
+capacity jobs, review stops and unattempted submissions.
+
+Focused verification: **123 passed**. Full suite: **421 passed**, zero skips/failures
+(24.38 seconds). Ruff passed; Black checked **77 files** unchanged; mypy passed
+**77 source files**. Local Markdown links/anchors, complete diffs and whitespace were
+checked. No diagram changed. The seven added parametrized regression cases supplement
+the original 414 tests; only superseded capacity expectations in the existing
+SPEC-002 reporting test changed.
+
+Independent read-only compliance review found no blocking defect and required no
+fixes. It covered capacity/permission separation, persistent evidence, restart/reset,
+temporary deferrals, concurrency and reporting privacy. The reviewer did not run tests;
+the executor ran the checks above. No approved behavioral deviation remains.
+SPEC-001 text and invariants, response grammar, schemas, dependencies and version are
+unchanged. Operational, architecture, troubleshooting and testing guidance were updated.
+
+Limitations: releasing scheduler capacity does not resolve old stopped uploads or
+reconstruct discarded response payloads. They remain review-only. Synthetic evidence
+does not establish live acceptance. Genuine processing and quota waits retain existing
+budgets; no wall-clock SLA or concurrent-writer guarantee is introduced.
+
+No real workspace, credentials, Strava/OAuth or network access occurred. No real reset,
+resend, push, merge, tag, release or version change occurred. Next action, requiring
+separate live authorization (not executed here):
+
+```powershell
+python main.py strava upload "C:\temp\polar-live-acceptance-clean" --limit 5
+```
 
 ### Historical verification of the 2026-09-30 revision
 
