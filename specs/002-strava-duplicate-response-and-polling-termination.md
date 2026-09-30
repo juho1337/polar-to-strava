@@ -1,18 +1,20 @@
 # SPEC-002: Strava Duplicate Response Recognition & Polling Termination
 
-Status: Verified
+Status: Approved
 Created: 2026-09-30
 Reviewed: 2026-09-30 (human decisions resolved and final SPEC-001 consistency review)
 Approval: 2026-09-30 (requesting user explicitly approved Decisions 1–4 and the consistent specification)
-Implementation: 45a5ae1c842612101a9ca02adeed811088cb33d2
-Verified: 2026-09-30 (synthetic verification and focused compliance review; live acceptance pending)
+Amendment approval: 2026-10-01 (requesting user explicitly approved persistent duplicate review-stop capacity exclusion)
+Implementation: Prior revision implemented in 45a5ae1c842612101a9ca02adeed811088cb33d2; capacity amendment not implemented
+Prior revision verified: 2026-09-30; amended revision verification pending
 Implementation plan: Not created; separate document not required for this focused change
 Extends: [SPEC-001](001-strava-uploader-recovery.md)
 Investigation baseline: `5c5ceaa827c2fad87bdc0b6114272fe376b1f86c`
 
 This specification follows the [SDD workflow](README.md). CURRENT describes inspected
 code and separately identified user-reported live observations. TARGET is the behavior
-approved on 2026-09-30; implementation evidence is recorded in Completion. SPEC-001 remains unchanged and Verified
+approved on 2026-09-30 and narrowly amended on 2026-10-01. Prior implementation
+evidence is historical; the capacity amendment is not implemented. SPEC-001 remains unchanged and Verified
 for its approved contract; SPEC-002 explicitly records the narrow extensions below.
 
 ## Problem
@@ -193,9 +195,24 @@ idempotency key, or proof of identity without local submission context.
   authorized read-only diagnostic remains possible outside normal orchestration;
   this spec introduces no override/reconciliation command or automatic diagnostic.
   Parser upgrade alone cannot resolve old records because the raw assertion is absent.
-- A review-stopped job remains accounted for conservatively as retained remote work;
-  it does not create extra submission capacity. Other already-active jobs progress.
-  If capacity leaves selected fresh work unattempted, return with an explicit reason.
+- A persistent `duplicate_unrecognized` review-stopped attempt consumes zero active
+  submission-capacity slots, in both the current run and after reopening state. Preserve
+  its upload ID, submission evidence, historical remote state, reason, review requirement
+  and relevant timestamps/diagnostic codes; do not rewrite `processing` to free capacity.
+  Submission permission remains denied, automatic observation remains denied, and the
+  record remains unresolved and visible. Capacity exclusion is not resolution, duplicate
+  recognition, blocker removal or proof of non-submission. Safe reset/force cannot clear
+  the stop, restore POST/GET permission or restore its capacity occupancy.
+- Derive this narrow exclusion from the persistent duplicate review-stop classification,
+  not merely from a historical remote label or the absence of current GET permission.
+  Genuine processing, transient observation deferrals, rate-limited/resumable work,
+  temporary network failures and other retained jobs keep existing conservative capacity
+  semantics. This does not release capacity for every blocked or temporarily inactive job.
+- At capacity three, three persistent duplicate review stops occupy zero active slots;
+  five independently eligible fresh candidates may progress through the normal scheduler
+  with at most three active capacity-consuming remote jobs, not five simultaneous POSTs.
+  Existing rate, artifact and submission-authorization gates still apply. If other
+  retained capacity or a run stop leaves work unattempted, report that actual cause.
 - Genuine processing and transient GET failures keep SPEC-001's existing per-run
   budgets, backoff and rate controls: default 60 GET attempts, three consecutive
   network/server failures, doubled intervals capped at 30 seconds, daily/429 stops.
@@ -219,6 +236,11 @@ waiting job, plus the applicable consecutive-failure budget. Distinguish schedul
 observation from deferred/review work. Final output explains unresolved/deferred and
 unattempted selected work and returns control without claiming migration completion.
 Local status/dry-run remain network-free and expose the same permission classification.
+Distinguish retained duplicate review stops, active observations, capacity-consuming
+remote work and fresh candidates. A review label does not itself imply slot occupancy.
+Do not attribute unattempted work to duplicate review-stop capacity after this amendment;
+`retained capacity or deferred work` is appropriate only when other work actually retains
+capacity. No general reporting redesign is required.
 
 ## Data, persistence, restart and compatibility
 
@@ -261,6 +283,12 @@ through SPEC-002; they identify the affected SPEC-001 wording without silently r
 - **AC-16 reporting:** clarify that historical processing is not active observation
   when a duplicate review stop applies; expose bounded-wait reasons/budgets.
 
+- **2026-10-01 capacity amendment / SPEC-002 AC-05:** supersede this specification's
+  original review-stop occupancy paragraph and the corresponding SPEC-001 implementation
+  plan rule that all unresolved processing/deferred jobs retain slots, only for persistent
+  `duplicate_unrecognized` review stops. Historical remote state is not rewritten; this
+  is a scheduling exception, not a relaxation of SPEC-001 submission/observation safety.
+
 No weakening of AC-03, positive POST permission, reset safety or identity invariants
 is authorized. The SPEC-001 plan's observation-blocker mapping and scheduler/reporting
 details require only the focused implementation delta described here, not a rewrite.
@@ -277,12 +305,17 @@ details require only the focused implementation delta described here, not a rewr
 - **AC-04:** New and previously persisted unrecognized duplicate evidence stops
   automatic GET in the current and later runs; reset/force cannot erase that stop or
   permit POST. Known IDs and independent evidence survive.
-- **AC-05:** Mixed batches return when only stopped/deferred/capacity-blocked work
-  remains. Review stops do not create unsafe capacity; genuine processing, transient
-  failures, rate stops and interruption retain existing bounded recovery behavior.
+- **AC-05:** Persistent `duplicate_unrecognized` review stops occupy zero active
+  submission-capacity slots across persistence/restart/reset, while remaining visible,
+  unresolved and prohibited from POST/automatic GET with evidence unchanged. Unrelated
+  fresh candidates may progress within configured capacity and all existing gates.
+  Other retained processing/transient/rate-deferred work keeps conservative occupancy.
+  Mixed batches return when no permitted work can advance; existing polling/backoff,
+  rate and interruption bounds remain unchanged.
 - **AC-06:** CLI/progress/local preview distinguish resolved duplicates, duplicate
   review stops and actual observation; explain next wait, remaining budgets and
-  unattempted selected work without exposing private payloads or changing --limit semantics.
+  unattempted selected work and actual capacity occupancy separately from review stops,
+  without exposing private payloads or changing --limit semantics.
 - **AC-07:** Missing historical context, artifact changes, conflicts and persistence
   faults fail conservatively; compatibility preserves existing terminal evidence and
   all SPEC-001 no-resend guarantees. No raw error/title is persisted for diagnostics.
@@ -297,7 +330,7 @@ Propose synthetic verification, not live calls or mandatory test-first ceremony:
 | AC-02 | Negation/speculation, unrelated link, `/athletes/123`, zero/negative/abc IDs, multiple links, extra prose, malformed hash/identifier, missing/mismatched echo/context, duplicate attributes, encoded/absolute/query paths, nested markup and completion/identity contradictions |
 | AC-02,07 | Generic HTTP error with unrelated numeric ID; existing attribution, partial evidence and stronger-terminal regressions; no trust from anchor text |
 | AC-03–05 | Fake-clock jobs resolve or stop after first applicable response; same unknown response cannot consume 60 GETs; old persisted stop with observation-permitting flags still makes zero GET; reset/force/reopen preserve barrier |
-| AC-05 | Mixed resolved/review/processing batch at capacity with pending candidates; lower-capacity restart; unchanged 60-GET and three-failure limits, backoff, short/daily/429 stops; Ctrl+C during GET/wait retains evidence |
+| AC-05 | Persist three confirmed historical-processing `duplicate_unrecognized` uploads, close/reopen SQLite, select five fresh eligible candidates at capacity three: zero POST/GET for stopped records, unchanged evidence and review visibility, zero stopped-record slot occupancy, permitted fresh progress and active remote concurrency never above three. Repeat after safe reset/force. Counterexamples retain slots for genuine processing, transient/network and rate deferrals; preserve lower-capacity behavior, 60-GET/three-failure bounds, backoff and interruption evidence. |
 | AC-06 | CLI/service composition, waiting/final messages, actual budgets/times, selection limit and overlapping multiple-attempt categories; status/dry-run network bombs |
 | AC-07 | Changed/missing artifact and orphan context, failed evidence commit, existing legacy terminal records, synthetic secret/title markers absent from database/events/output |
 
@@ -328,14 +361,17 @@ None. The requesting user explicitly resolved all four decisions on 2026-09-30:
 3. **Approved — existing general polling budgets:** genuine processing retains its
    bounded polling/backoff policy; waiting and backoff must be visibly explained.
    No general scheduler redesign or new wall-clock deadline is introduced.
-4. **Approved — conservative capacity:** retain current conservative accounting and
-   explain unattempted work. Any implementation-discovered direct contradiction must
-   return to review rather than silently expanding scope into capacity redesign.
+4. **Amended and approved 2026-10-01 — capacity exclusion:** persistent
+   `duplicate_unrecognized` review stops occupy no active submission-capacity slot.
+   Their POST/automatic GET permissions remain denied and all evidence remains intact.
+   All other retained processing/transient/rate-deferred work keeps conservative
+   accounting. This explicitly supersedes the 2026-09-30 decision only for these stops.
 
 Final consistency review: the linked grammar explicitly extends SPEC-001's text-only
 assertion; the persistent stop narrows its optional duplicate reobservation; reporting
 distinguishes retained remote labels from active work. All broader SPEC-001 invariants
-remain authoritative. No additional behavioral decision or approval blocker was found.
+remain authoritative. The 2026-10-01 capacity exception is explicitly human-approved;
+no additional behavioral decision or approval blocker remains.
 
 ## Future-work recommendation: audit performance
 
@@ -367,7 +403,33 @@ This is explicitly outside SPEC-002 implementation and has no approved solution.
   Implemented to Verified. No behavioral amendment, schema change or plan was required.
   SPEC-001 and all seven SPEC-002 acceptance criteria remain unchanged.
 
+- 2026-10-01: Controlled acceptance and prior read-only diagnosis established three
+  persistent duplicate review stops occupied all three slots, leaving five fresh
+  candidates unattempted with no intent/POST evidence. This matched the original policy;
+  it was not an implementation defect or SPEC-001 recovery failure. The user explicitly
+  approved excluding these stops from active capacity while retaining all evidence and
+  denying POST/automatic GET. Amended AC-05 and narrowly clarified AC-06; IDs remain
+  AC-01–AC-07. Other criteria, duplicate grammar and polling budgets are unchanged.
+  Current revision returns to Approved pending implementation and fresh verification;
+  the prior Verified result remains historical. No implementation, tests, workspace
+  access, network requests or separate implementation plan belong to this amendment.
+
 ## Completion
+
+- Current revision: capacity amendment Approved on 2026-10-01; not implemented or
+  verified. AC-05 and the capacity-reporting clarification in AC-06 require new evidence.
+- Next action: separately authorize a focused implementation of this approved amendment,
+  verify the reopened three-stop/five-fresh scenario and all seven criteria, then perform
+  compliance review before further separately authorized live acceptance.
+- Amendment-only validation: local links/anchors, complete diff and whitespace checks;
+  production code, tests and SPEC-001 remain unchanged.
+
+### Historical verification of the 2026-09-30 revision
+
+The following results apply to the prior capacity policy. They do not verify the
+2026-10-01 amendment; especially the former AC-05 test deliberately retained review-stop
+capacity. Prior release/acceptance recommendations below are historical.
+
 
 - Implementation: `45a5ae1c842612101a9ca02adeed811088cb33d2`.
 - Lifecycle: Verified on 2026-09-30; controlled live acceptance has not been performed
