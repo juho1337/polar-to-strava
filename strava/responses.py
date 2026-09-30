@@ -30,8 +30,40 @@ def is_upload_envelope(payload: object) -> bool:
     )
 
 
+def linked_duplicate_id(error: str, expected_identifier: str | None) -> str | None:
+    """Recognize only SPEC-002's complete assertion; HTML is never executed/repaired."""
+    if expected_identifier is None or not re.fullmatch(
+        r"sha256:[0-9a-f]{64}\.fit", expected_identifier
+    ):
+        return None
+    prefix = expected_identifier + " duplicate of "
+    if not error.startswith(prefix):
+        return None
+    anchor = re.fullmatch(r"<a(?P<attrs>[^<>]+)>(?P<title>[^<>]*)</a>", error[len(prefix) :])
+    if anchor is None:
+        return None
+    attributes: dict[str, str] = {}
+    remaining = anchor["attrs"]
+    while remaining:
+        attribute = re.match(r"\s+([a-z]+)=([\"'])(.*?)\2", remaining)
+        if attribute is None or attribute[1] in attributes:
+            return None
+        attributes[attribute[1]] = attribute[3]
+        remaining = remaining[attribute.end() :]
+    if set(attributes) not in ({"href"}, {"href", "target"}):
+        return None
+    if "target" in attributes and attributes["target"] != "_blank":
+        return None
+    path = re.fullmatch(r"/activities/([1-9][0-9]*)", attributes["href"])
+    return path[1] if path else None
+
+
 def parse_upload_response(
-    payload: object, *, operation: Operation, expected_upload_id: str | None = None
+    payload: object,
+    *,
+    operation: Operation,
+    expected_upload_id: str | None = None,
+    expected_identifier: str | None = None,
 ) -> ResponseEvidence:
     expected = positive_id(expected_upload_id)
     if operation == Operation.OBSERVE and expected is None:
@@ -88,6 +120,21 @@ def parse_upload_response(
             upload_id=upload_id, activity_id=activity, remote=Remote.COMPLETED, code=Code.COMPLETED
         )
     if error:
+        linked_id = linked_duplicate_id(error, expected_identifier)
+        if (
+            linked_id
+            and upload_id
+            and status.strip() == "There was an error processing your activity."
+            and "activity_id" in payload
+            and raw_activity is None
+            and payload.get("external_id") == expected_identifier
+        ):
+            return ResponseEvidence(
+                upload_id=upload_id,
+                duplicate_activity_id=linked_id,
+                remote=Remote.DUPLICATE,
+                code=Code.DUPLICATE,
+            )
         normalized = " ".join(re.sub(r"<[^>]*>", "", html.unescape(error)).split())
         # Our uploader sends FIT basenames. Unknown filename/prose shapes stay review-only;
         # accepting arbitrary leading words would turn "may be a duplicate" into success.

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Literal
 
 from strava.artifacts import VerifiedArtifact
 from strava.models import ManifestActivity
@@ -188,6 +189,7 @@ class ActionDecision:
     attempt_id: int | None = None
     upload_id: str | None = None
     reasons: tuple[Code, ...] = ()
+    review_upload_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +197,15 @@ class RecoveryEvent:
     identifier: str
     action: Action
     reason_codes: tuple[Code, ...] = ()
+    review_upload_ids: tuple[str, ...] = ()
+    wait_reason: Literal["processing_backoff", "transient_backoff"] | None = None
+    next_poll_at: float | None = None
+    polls_remaining: int | None = None
+    failures_remaining: int | None = None
+    batch_unattempted: int | None = None
+    batch_review: int = 0
+    batch_observing: int = 0
+    batch_stopped: bool = False
 
 
 def _submission_reasons(record: RecoveryRecord) -> list[Code]:
@@ -254,6 +265,15 @@ def submission_permission(
     return Permission(not reasons, tuple(dict.fromkeys(reasons)))
 
 
+def duplicate_review_stop(record: RecoveryRecord, attempt: AttemptRecord) -> bool:
+    """Old blocker flags/reset do not override retained duplicate-review evidence."""
+    return Code.DUPLICATE_UNRECOGNIZED in {attempt.evidence_code, attempt.error_code} or any(
+        b.code == Code.DUPLICATE_UNRECOGNIZED
+        and b.scope in {"activity", f"attempt:{attempt.attempt_id}"}
+        for b in record.blockers
+    )
+
+
 def observation_permission(record: RecoveryRecord, attempt_id: int, rate_ready: bool) -> Permission:
     attempt = next((a for a in record.attempts if a.attempt_id == attempt_id), None)
     reasons: list[Code] = []
@@ -269,6 +289,8 @@ def observation_permission(record: RecoveryRecord, attempt_id: int, rate_ready: 
             if attempt.remote == Remote.PROCESSING_FAILED
             else Code.OUTCOME_CONFLICT
         )
+    if attempt is not None and duplicate_review_stop(record, attempt):
+        reasons.append(Code.DUPLICATE_UNRECOGNIZED)
     if attempt is not None and attempt.conflicting_ids:
         reasons.append(Code.ID_CONFLICT)
     for blocker in record.blockers:
@@ -314,6 +336,8 @@ def classify_actions(record: RecoveryRecord) -> tuple[ActionDecision, ...]:
                     Action.OBSERVE, record.stable_activity_id, attempt.attempt_id, attempt.upload_id
                 )
             )
+        elif duplicate_review_stop(record, attempt):
+            review.append(Code.DUPLICATE_UNRECOGNIZED)
         elif attempt.submission != Submission.NOT_SUBMITTED:
             review.append(
                 Code.PROCESSING_ERROR
@@ -331,7 +355,18 @@ def classify_actions(record: RecoveryRecord) -> tuple[ActionDecision, ...]:
     if review:
         actions.append(
             ActionDecision(
-                Action.REVIEW, record.stable_activity_id, reasons=tuple(dict.fromkeys(review))
+                Action.REVIEW,
+                record.stable_activity_id,
+                reasons=tuple(dict.fromkeys(review)),
+                review_upload_ids=tuple(
+                    sorted(
+                        {
+                            a.upload_id
+                            for a in record.attempts
+                            if a.upload_id and duplicate_review_stop(record, a)
+                        }
+                    )
+                ),
             )
         )
     return tuple(actions)

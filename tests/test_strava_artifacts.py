@@ -44,7 +44,9 @@ class Transport:
             raise self.failure
         return self.reply
 
-    def get_upload(self, upload_id: str, access: PreparedAccess) -> ResponseEvidence:
+    def get_upload(
+        self, upload_id: str, access: PreparedAccess, *, expected_identifier: str | None = None
+    ) -> ResponseEvidence:
         self.gets.append(upload_id)
         return ResponseEvidence(
             upload_id=upload_id, activity_id="22", remote=Remote.COMPLETED, code=Code.COMPLETED

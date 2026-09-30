@@ -58,7 +58,9 @@ class Pipeline(Transport):
             upload_id=str(len(self.posts)), remote=Remote.PROCESSING, code=Code.PROCESSING
         )
 
-    def get_upload(self, upload_id: str, access: PreparedAccess) -> ResponseEvidence:
+    def get_upload(
+        self, upload_id: str, access: PreparedAccess, *, expected_identifier: str | None = None
+    ) -> ResponseEvidence:
         self.requests.append(("GET", upload_id, self.clock.now))
         self.gets.append(upload_id)
         return self.observe(upload_id)

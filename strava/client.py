@@ -49,7 +49,9 @@ class UploadClient(Protocol):
         self, artifact: VerifiedArtifact, external_id: str, access: PreparedAccess
     ) -> ResponseEvidence: ...
 
-    def get_upload(self, upload_id: str, access: PreparedAccess) -> ResponseEvidence: ...
+    def get_upload(
+        self, upload_id: str, access: PreparedAccess, *, expected_identifier: str | None = None
+    ) -> ResponseEvidence: ...
 
 
 class RequestFailure(Exception):
@@ -220,9 +222,17 @@ class StravaClient:
             raise RequestFailure(
                 Operation.SUBMIT, FailurePhase.POSSIBLY_SENT, Code.NETWORK
             ) from None
-        return self._upload_response(response, Operation.SUBMIT)
+        return self._upload_response(
+            response,
+            Operation.SUBMIT,
+            expected_identifier=(
+                external_id + ".fit" if external_id == artifact.stable_activity_id else None
+            ),
+        )
 
-    def get_upload(self, upload_id: str, access: PreparedAccess) -> ResponseEvidence:
+    def get_upload(
+        self, upload_id: str, access: PreparedAccess, *, expected_identifier: str | None = None
+    ) -> ResponseEvidence:
         if positive_id(upload_id) != upload_id:
             raise RequestFailure(
                 Operation.OBSERVE, FailurePhase.OBSERVATION, Code.MISSING_UPLOAD_ID
@@ -240,10 +250,17 @@ class StravaClient:
                 Code.NETWORK,
                 evidence=ResponseEvidence(upload_id=upload_id, code=Code.NETWORK),
             ) from None
-        return self._upload_response(response, Operation.OBSERVE, upload_id)
+        return self._upload_response(
+            response, Operation.OBSERVE, upload_id, expected_identifier=expected_identifier
+        )
 
     def _upload_response(
-        self, response: httpx.Response, operation: Operation, expected_upload_id: str | None = None
+        self,
+        response: httpx.Response,
+        operation: Operation,
+        expected_upload_id: str | None = None,
+        *,
+        expected_identifier: str | None = None,
     ) -> ResponseEvidence:
         self._capture_rate_limit(response)
         try:
@@ -256,7 +273,10 @@ class StravaClient:
             payload = None
         evidence = replace(
             parse_upload_response(
-                payload, operation=operation, expected_upload_id=expected_upload_id
+                payload,
+                operation=operation,
+                expected_upload_id=expected_upload_id,
+                expected_identifier=expected_identifier,
             ),
             http_status=response.status_code,
         )

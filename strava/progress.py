@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from rich.console import Console
 from rich.table import Table
@@ -160,6 +160,10 @@ def print_actions(
             console.print(
                 "  Reasons: " + ", ".join(code.value for code in action.reasons), markup=False
             )
+        if Code.DUPLICATE_UNRECOGNIZED in action.reasons:
+            console.print("  Human review required; automatic observation stopped.")
+            for upload_id in action.review_upload_ids:
+                console.print(literal(f"  Review-stopped upload ID: {upload_id}"))
         if Code.DATE_UNAVAILABLE in action.reasons:
             console.print(
                 "  Date unavailable: use an explicit --activity-id or --all without date filters."
@@ -240,4 +244,25 @@ class RecoveryProgressRenderer:
             current = f"{event.identifier}: {ACTION_LABELS[event.action]}" + (
                 f" ({reasons})" if reasons else ""
             )
+            if Code.DUPLICATE_UNRECOGNIZED in event.reason_codes:
+                current += "; automatic observation stopped"
+                current += "; upload IDs: " + ", ".join(event.review_upload_ids)
+            if event.next_poll_at is not None:
+                due = datetime.fromtimestamp(event.next_poll_at, UTC).isoformat()
+                current += (
+                    f"; waiting: {event.wait_reason}; next GET at {due}; "
+                    f"GET budget remaining {event.polls_remaining}; "
+                    f"consecutive-failure budget remaining {event.failures_remaining}"
+                )
+            if event.batch_unattempted is not None:
+                cause = (
+                    "run stopped" if event.batch_stopped else "retained capacity or deferred work"
+                )
+                current += (
+                    f"; Batch finished: {event.batch_review} need review; "
+                    f"{event.batch_observing} observations retained/deferred; "
+                    f"{event.batch_unattempted} selected submissions unattempted"
+                )
+                if event.batch_unattempted:
+                    current += f" ({cause})"
         return progress_table(snapshot(self.manifest, self.records()), current=current)

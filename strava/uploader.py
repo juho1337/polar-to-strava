@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 
@@ -190,6 +190,7 @@ class _RecoveryRunner:
         self.capacity, self.max_polls, self.max_retries = max_in_flight, max_polls, max_retries
         self.poll_interval = max(1.0, poll_interval)
         self.stopped = False
+        self.last_event: RecoveryEvent | None = None
 
     def _access(self, *, read: bool = False) -> PreparedAccess:
         while True:
@@ -205,7 +206,10 @@ class _RecoveryRunner:
                 reasons = action.reasons + (
                     (reason,) if reason and reason not in action.reasons else ()
                 )
-                self.on_event(RecoveryEvent(identifier, action.kind, reasons))
+                self.last_event = RecoveryEvent(
+                    identifier, action.kind, reasons, review_upload_ids=action.review_upload_ids
+                )
+                self.on_event(self.last_event)
 
     def submit(self, identifier: str) -> None:
         # Only stale pre-intent preparation repeats. An attempted POST never does.
@@ -328,7 +332,19 @@ class _RecoveryRunner:
             return
         job.polls += 1
         try:
-            evidence = self.client.get_upload(job.upload_id, access)
+            attempt = next(
+                a
+                for a in self.store.load(job.identifier).attempts
+                if a.attempt_id == job.attempt_id
+            )
+            expected_identifier = (
+                attempt.stable_activity_id + ".fit"
+                if attempt.kind == "submission" and attempt.intent_at and attempt.fit_sha256
+                else None
+            )
+            evidence = self.client.get_upload(
+                job.upload_id, access, expected_identifier=expected_identifier
+            )
         except RequestFailure as error:
             # Preserve partial/conflicting evidence before adding a retrieval deferral.
             self.store.record_evidence(job.attempt_id, error.evidence)
@@ -367,6 +383,7 @@ class _RecoveryRunner:
     def run(self, selected: list[ActionDecision]) -> tuple[ActionDecision, ...]:
         """Run selected internal jobs; each invocation starts fresh observation budgets."""
         self.stopped = False
+        self.last_event = None
         # Missing date metadata is an explanation, not selection authorization.
         excluded = tuple(a for a in selected if Code.DATE_UNAVAILABLE in a.reasons)
         excluded_ids = {a.stable_activity_id for a in excluded}
@@ -392,14 +409,42 @@ class _RecoveryRunner:
                     break
                 job = min(active, key=lambda item: (item.due, item.attempt_id))
                 delay = job.due - self.clock()
+                if self.on_event:
+                    self.on_event(
+                        RecoveryEvent(
+                            job.identifier,
+                            Action.OBSERVE,
+                            wait_reason=(
+                                "transient_backoff" if job.failures else "processing_backoff"
+                            ),
+                            next_poll_at=max(self.clock(), job.due),
+                            polls_remaining=max(0, self.max_polls - job.polls),
+                            failures_remaining=max(0, self.max_retries - job.failures),
+                        )
+                    )
                 if delay > 0:
                     self.policy.sleep(delay)
                 self._observe(job)
                 self._restore(identifiers, jobs, restored=False)
         except KeyboardInterrupt:
             self.stopped = True
-        return excluded + tuple(
+        result = excluded + tuple(
             action
             for identifier in sorted(identifiers)
             for action in classify_actions(self.store.load(identifier))
         )
+        if self.on_event:
+            self.on_event(
+                replace(
+                    self.last_event or RecoveryEvent("", Action.REVIEW),
+                    batch_unattempted=len(pending),
+                    batch_review=len(
+                        {a.stable_activity_id for a in result if a.kind == Action.REVIEW}
+                    ),
+                    batch_observing=len(
+                        {a.stable_activity_id for a in result if a.kind == Action.OBSERVE}
+                    ),
+                    batch_stopped=self.stopped,
+                )
+            )
+        return result
