@@ -1,11 +1,13 @@
 """Command line interface."""
 
+import time
 from datetime import date
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.live import Live
 
 from config.loader import load_config
 from core.audit_progress import AuditProgressRenderer
@@ -16,7 +18,9 @@ from services import ActivityValidator, ConversionService
 from services.audit import MigrationAudit
 from strava.client import StravaClient, TokenStore, authorization_url, credentials
 from strava.models import MigrationManifest
-from strava.progress import print_actions, print_status, snapshot
+from strava.progress import RecoveryProgressRenderer, print_actions, print_status, snapshot
+from strava.rate_limit import RateLimitPolicy, RateWait
+from strava.recovery import Action, RecoveryEvent
 from strava.state import UploadStateStore
 from strava.uploader import Uploader
 
@@ -63,7 +67,7 @@ def strava_upload(
     max_in_flight: Annotated[int, typer.Option("--max-in-flight", min=1, max=10)] = 3,
     rate_limit_reserve: Annotated[int, typer.Option("--rate-limit-reserve", min=0)] = 10,
 ) -> None:
-    """Preview local recovery with --dry-run; production uploads remain guarded."""
+    """Preview locally or execute permitted submissions and known-upload observations."""
     if sum((limit is not None, activity_id is not None, all_activities)) != 1:
         raise typer.BadParameter("Choose exactly one of --limit, --activity-id, or --all")
     try:
@@ -71,19 +75,56 @@ def strava_upload(
         parsed_to = date.fromisoformat(to_date) if to_date else None
     except ValueError as error:
         raise typer.BadParameter("Dates must use YYYY-MM-DD") from error
-    if not dry_run:
-        console.print("recovery integration incomplete")
-        raise typer.Exit(code=1)
     try:
         with _state_store(workspace) as store:
             uploader = Uploader(workspace, store)
             selected = uploader.select(
                 limit=limit, activity_id=activity_id, from_date=parsed_from, to_date=parsed_to
             )
-            print_actions(console, uploader.preview(selected), preview=True)
+            if dry_run:
+                print_actions(console, uploader.preview(selected), preview=True)
+                console.print(
+                    "Local preview only: no requests or submission intent. would_submit requires "
+                    "fresh checks on a later run and does not guarantee Strava acceptance."
+                )
+                return
+            if not any(a.kind in {Action.SUBMIT, Action.OBSERVE} for a in selected):
+                print_actions(console, selected)
+                print_status(console, snapshot(uploader.manifest, store.records()))
+                return
+            client_id, client_secret = credentials()
+            client = StravaClient(
+                client_id, client_secret, TokenStore(workspace / ".strava-tokens.json")
+            )
+            renderer = RecoveryProgressRenderer(uploader.manifest, store.records)
+            try:
+                with Live(renderer.render(), console=console, refresh_per_second=4) as live:
+
+                    def update(event: RecoveryEvent) -> None:
+                        renderer.update(event)
+                        live.update(renderer.render())
+
+                    def waiting(notice: RateWait) -> None:
+                        console.print(f"Rate reserve: waiting until {notice.resume_at.isoformat()}")
+
+                    uploader = Uploader(
+                        workspace,
+                        store,
+                        client,
+                        policy=RateLimitPolicy(
+                            reserve=rate_limit_reserve, sleep=time.sleep, on_wait=waiting
+                        ),
+                        clock=time.time,
+                        on_event=update,
+                        max_in_flight=max_in_flight,
+                    )
+                    uploader.run(selected)
+                    renderer.manifest = uploader.manifest
+                    live.update(renderer.render())
+            finally:
+                client.http.close()
             console.print(
-                "Local preview only: no requests or submission intent. would_submit requires "
-                "fresh checks on a later run and does not guarantee Strava acceptance."
+                "Run finished. Inspect strava status --details for retained recovery actions."
             )
     except PolarToStravaError as error:
         console.print(f"[red]Error:[/red] {error}")

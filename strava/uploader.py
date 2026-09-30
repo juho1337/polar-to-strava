@@ -1,7 +1,8 @@
-"""Local recovery selection foundation. Execution is disabled until integration."""
+"""Evidence-based selection and safe submission/observation orchestration."""
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -26,8 +27,6 @@ from strava.recovery import (
 )
 from strava.state import UploadStateStore
 
-INTEGRATION_INCOMPLETE = "recovery integration incomplete"
-
 
 @dataclass(slots=True)
 class ProcessingJob:
@@ -46,11 +45,22 @@ class Uploader:
         self,
         workspace: Path,
         store: UploadStateStore,
-        client: object | None = None,
-        **options: object,
+        client: UploadClient | None = None,
+        *,
+        policy: RateLimitPolicy | None = None,
+        clock: Callable[[], float] = time.time,
+        on_event: Callable[[RecoveryEvent], None] | None = None,
+        max_in_flight: int = 3,
+        poll_interval: float = 2,
+        max_polls: int = 60,
+        max_retries: int = 3,
     ) -> None:
         self.workspace, self.store = workspace, store
-        # Never inspect/construct/use an injected client during foundation work.
+        self.client = client
+        self.policy = policy or RateLimitPolicy(sleep=time.sleep)
+        self.clock, self.on_event = clock, on_event
+        self.max_in_flight, self.poll_interval = max_in_flight, poll_interval
+        self.max_polls, self.max_retries = max_polls, max_retries
         self.manifest, fingerprint = MigrationManifest.load(workspace)
         store.reconcile(self.manifest, fingerprint)
 
@@ -135,19 +145,29 @@ class Uploader:
         return result
 
     def run(self, activities: list[ActionDecision], dry_run: bool = False) -> ProgressSnapshot:
-        # Authoritative guard: no escape hatch, client access, callback or scheduler.
-        if not dry_run:
-            raise ValidationError(INTEGRATION_INCOMPLETE)
-        self.preview(activities)
+        if dry_run:
+            self.preview(activities)
+        elif any(a.kind in {Action.SUBMIT, Action.OBSERVE} for a in activities):
+            if self.client is None:
+                raise ValidationError("Upload execution requires a client")
+            _RecoveryRunner(
+                self.workspace,
+                self.store,
+                self.client,
+                self.policy,
+                clock=self.clock,
+                on_event=self.on_event,
+                max_in_flight=self.max_in_flight,
+                poll_interval=self.poll_interval,
+                max_polls=self.max_polls,
+                max_retries=self.max_retries,
+            ).run(activities)
+            self.manifest, _ = MigrationManifest.load(self.workspace)
         return snapshot(self.manifest, self.store.records())
 
 
 class _RecoveryRunner:
-    """Internal composition under development; neither production guard invokes it.
-
-    Dependencies are mandatory. There is no live-client factory, flag or guard bypass.
-    WP4/WP5 integration tests compose this with synthetic workspaces and transports.
-    """
+    """Single safe runner shared by production composition and synthetic tests."""
 
     def __init__(
         self,

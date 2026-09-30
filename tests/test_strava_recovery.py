@@ -215,44 +215,6 @@ def test_corrected_preflight_candidate(tmp_path: Path) -> None:
         assert any(a.kind == Action.SUBMIT for a in store.reset(identifier))
 
 
-@pytest.mark.parametrize("force", [False, True])
-def test_service_guard_has_no_client_or_force_bypass(tmp_path: Path, force: bool) -> None:
-    class Bomb:
-        def __getattribute__(self, name: str) -> object:
-            pytest.fail(f"Client access before refusal: {name}")
-
-    root, identifier = workspace(tmp_path)
-    with UploadStateStore(root / "migration-state.sqlite3") as store:
-        uploader = Uploader(root, store, Bomb(), force=force)
-        store.reset(identifier, force=force)
-        with pytest.raises(ValidationError, match="^recovery integration incomplete$"):
-            uploader.run(uploader.select())
-        assert store.load(identifier).attempts == ()
-        for obsolete in ("_submit", "_poll_once", "_handle_status"):
-            assert not hasattr(uploader, obsolete)
-
-
-@pytest.mark.parametrize("flags", [[], ["--force"]])
-def test_cli_guard_before_client_state_and_auth(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str]
-) -> None:
-    import core.cli as cli
-
-    def bomb(*args: object, **kwargs: object) -> None:
-        pytest.fail("CLI accessed state, credentials or network before refusal")
-
-    monkeypatch.setattr(cli, "StravaClient", bomb)
-    monkeypatch.setattr(cli, "credentials", bomb)
-    monkeypatch.setattr(cli, "_state_store", bomb)
-    result = CliRunner().invoke(app, ["strava", "upload", str(tmp_path), "--all", *flags])
-    assert result.exit_code != 0
-    assert (
-        "recovery integration incomplete" in result.output
-        if not flags
-        else "No such option" in result.output
-    )
-
-
 def test_local_preview_does_not_construct_network(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
