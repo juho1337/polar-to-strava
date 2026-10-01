@@ -242,9 +242,14 @@ class RecoveryProgressRenderer:
     """Bounded current-event adapter; rendering never mutates evidence or authorizes I/O."""
 
     def __init__(
-        self, manifest: MigrationManifest, records: Callable[[], tuple[RecoveryRecord, ...]]
+        self,
+        manifest: MigrationManifest,
+        records: Callable[[], tuple[RecoveryRecord, ...]],
+        *,
+        rate_supplier: Callable[[], RateLimit | None] | None = None,
     ) -> None:
         self.manifest, self.records = manifest, records
+        self.rate_supplier = rate_supplier
         self.current: RecoveryEvent | None = None
 
     def update(self, event: RecoveryEvent) -> None:
@@ -281,4 +286,8 @@ class RecoveryProgressRenderer:
                 )
                 if event.batch_unattempted:
                     current += f" ({cause})"
-        return progress_table(snapshot(self.manifest, self.records()), current=current)
+        return progress_table(
+            snapshot(self.manifest, self.records()),
+            current=current,
+            rate=self.rate_supplier() if self.rate_supplier is not None else None,
+        )

@@ -389,3 +389,55 @@ def test_progress_renderer_with_mocked_orchestration(tmp_path: Path, outcome: st
         Console(file=rendered, width=150).print(renderer.render())
         assert identifier in rendered.getvalue()
         assert "synthetic" not in rendered.getvalue().lower()
+
+
+def test_renderer_reads_current_rate_snapshot_through_final_render() -> None:
+    manifest = MigrationManifest(manifest_version=1, activities=[])
+    rate: RateLimit | None = None
+    renderer = RecoveryProgressRenderer(manifest, lambda: (), rate_supplier=lambda: rate)
+
+    def rendered() -> str:
+        output = StringIO()
+        Console(file=output, width=200).print(renderer.render())
+        return output.getvalue()
+
+    assert "API 15 min" not in rendered()
+    rate = RateLimit(
+        short_limit=600,
+        daily_limit=30000,
+        short_usage=12,
+        daily_usage=345,
+        read_short_limit=300,
+        read_daily_limit=15000,
+        read_short_usage=3,
+        read_daily_usage=44,
+    )
+    text = rendered()
+    for expected in (
+        "API 15 min",
+        "API daily",
+        "Read 15 min",
+        "Read daily",
+        "12 / 600",
+        "345 / 30000",
+        "3 / 300",
+        "44 / 15000",
+    ):
+        assert expected in text
+    rate = rate.model_copy(update={"short_usage": 14, "daily_usage": 347})
+    assert "14 / 600" in rendered() and "12 / 600" not in rendered()
+    renderer.update(RecoveryEvent("synthetic", Action.RESOLVED, (), batch_unattempted=0))
+    text = rendered()
+    assert "Batch finished" in text and "347 / 30000" in text
+    rate = None
+    assert "API 15 min" not in rendered() and "Read daily" not in rendered()
+
+
+def test_renderer_without_rate_supplier_preserves_missing_rate_output() -> None:
+    renderer = RecoveryProgressRenderer(
+        MigrationManifest(manifest_version=1, activities=[]), lambda: ()
+    )
+    output = StringIO()
+    Console(file=output).print(renderer.render())
+    assert "API 15 min" not in output.getvalue()
+    assert "API daily" not in output.getvalue()

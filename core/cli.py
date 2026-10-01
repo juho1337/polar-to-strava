@@ -96,7 +96,9 @@ def strava_upload(
             client = StravaClient(
                 client_id, client_secret, TokenStore(workspace / ".strava-tokens.json")
             )
-            renderer = RecoveryProgressRenderer(uploader.manifest, store.records)
+            renderer = RecoveryProgressRenderer(
+                uploader.manifest, store.records, rate_supplier=lambda: client.rate_limit
+            )
             try:
                 with Live(renderer.render(), console=console, refresh_per_second=4) as live:
 

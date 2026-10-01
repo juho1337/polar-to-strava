@@ -54,9 +54,17 @@ def test_production_entry_uses_safe_recovery(
             with UploadStateStore(path) as observer:
                 assert observer.load(identifier).attempts[-1].submission.value == "intent"
             assert b"valid-fit" in request.read()
-            return httpx.Response(201, json={"id": 77, "status": "processing"})
+            return httpx.Response(
+                201,
+                json={"id": 77, "status": "processing"},
+                headers={"X-RateLimit-Limit": "600,30000", "X-RateLimit-Usage": "12,345"},
+            )
         assert request.url.path == "/api/v3/uploads/77"
-        return httpx.Response(200, json={"id": 77, "status": "ready", "activity_id": 99})
+        return httpx.Response(
+            200,
+            json={"id": 77, "status": "ready", "activity_id": 99},
+            headers={"X-RateLimit-Limit": "600,30000", "X-RateLimit-Usage": "13,346"},
+        )
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as http:
         client = StravaClient("synthetic", "synthetic", tokens, http)
@@ -79,6 +87,10 @@ def test_production_entry_uses_safe_recovery(
             )
             result_cli = CliRunner().invoke(cli.app, ["strava", "upload", str(root), "--all"])
             assert result_cli.exit_code == 0, result_cli.output
+            if state != "uncertain":
+                assert "API 15 min" in result_cli.output
+                assert "13 / 600" in result_cli.output
+                assert "346 / 30000" in result_cli.output
             assert "recovery integration incomplete" not in result_cli.output
             assert (
                 "no Strava request was made" not in result_cli.output
