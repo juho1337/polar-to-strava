@@ -377,7 +377,7 @@ no additional behavioral decision or approval blocker remains.
 
 No established backlog/future-work document was found in README or docs. Record the
 recommendation here rather than introducing a repository-wide planning system:
-profile the reported 2,928-activity, approximately 45-minute audit before optimizing.
+profile the reported 2,928-activity audit (45m 03s) before optimizing.
 Investigate parsing, FIT generation/validation, filesystem I/O, repeated hashing,
 redundant work, safe concurrency and reusable/incremental artifacts. Preserve
 determinism, FIT validation semantics, manifest equivalence and progress reporting.

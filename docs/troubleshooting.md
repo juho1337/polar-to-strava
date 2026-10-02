@@ -74,7 +74,8 @@ to store or use authorization that lacks `activity:write`.
 Begin with `python main.py strava status "<workspace>" --details`, then use
 `strava upload "<workspace>" --all --dry-run` for local artifact checks. Both are
 network-free, but can upgrade/reconcile state. Production execution is enabled after
-SPEC-001 synthetic verification; controlled live acceptance remains separately authorized.
+SPEC-001 verification and human-controlled live acceptance recorded in the
+[release evidence](release.md).
 
 | Finding | Safest next action |
 | --- | --- |
@@ -114,8 +115,8 @@ later run, without authorizing new submissions or treating remote processing as 
 
 ### The migration was interrupted
 
-Inspect local status/details before resuming. After separately authorized controlled
-live acceptance, repeating `strava upload "<workspace>" --all` restores
+Inspect local status/details before resuming. Repeating
+`strava upload "<workspace>" --all` restores
 permitted GETs of known IDs and submits only positively safe candidates. An intent with
 no saved ID remains review-only even if interruption might have preceded transmission.
 Saved completion/duplicate results survive restart and reset.

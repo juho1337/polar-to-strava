@@ -71,8 +71,8 @@ Proceed with a local status check and dry run as described in the
 ## Repairing access without erasing history
 
 Status/details and dry-run require no OAuth and make no network requests. Production
-upload is enabled following SPEC-001 synthetic verification; controlled live acceptance
-remains pending separate human authorization. Authorizing or repairing credentials never proves that an earlier upload
+upload uses the verified recovery runner, with human-controlled live acceptance
+recorded in the [release evidence](release.md). Authorizing or repairing credentials never proves that an earlier upload
 was absent. Preserve the existing recovery database. Safe reset may clear a locally
 repaired access/retrieval blocker for bounded observation, but never uncertainty or
 authoritative processing failure. Confirm the intended account; historical evidence

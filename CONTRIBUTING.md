@@ -53,4 +53,5 @@ SPEC-001 recovery verification must assert durable evidence and actual mocked PO
 counts and identities after reopen, not just final labels. Keep the eight crash windows,
 legacy routing, local-command network isolation and privacy regressions active. A
 passing synthetic suite does not demonstrate live acceptance or hardware power-loss
-durability. Dependency-list cleanup and CI setup remain separate future tasks.
+durability. CI setup remains a separate future task. See the
+[release checklist](docs/release.md) for versioning and release validation.

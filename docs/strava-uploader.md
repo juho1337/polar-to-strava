@@ -7,8 +7,10 @@ It does not promise exactly-once delivery. Use one process and preserve workspac
 
 **Verification checkpoint:** both production entry points use the verified recovery
 runner. SPEC-001 live acceptance exposed the response variant addressed by SPEC-002.
-SPEC-002 live acceptance remains separately authorized; synthetic checks do not establish
-real API acceptance or release readiness.
+Human-controlled SPEC-002 acceptance subsequently exercised duplicate resolution,
+review-stop capacity release, rate-reserve wait/resume and clean Ctrl+C interruption
+with retained recovery work. See the
+[release evidence](release.md); synthetic and human-provided evidence remain distinct.
 
 ## Review local recovery
 
@@ -47,8 +49,7 @@ includes retained recovery work. Optional `--from`/`--to` dates use current or r
 start metadata; a missing date is explained, never guessed. Use explicit ID or `--all`
 without date filters for a record whose date is unavailable.
 
-After separately authorized live acceptance, rerunning
-`strava upload "<workspace>" --all` resumes only allowed work. Known IDs route to GET,
+Rerunning `strava upload "<workspace>" --all` resumes only allowed work. Known IDs route to GET,
 review or resolution, never another POST because polling failed. No-ID uncertainty
 remains review-only; there is no remote search or automatic reconciliation feature.
 Authoritative processing failure also remains review-only, retaining its ID and outcome.

@@ -266,7 +266,8 @@ The HTTP client has a separate OAuth token POST, which is not an activity submis
 
 Both production entry points invoke the same recovery runner after the WP8 compliance
 gate passed. CLI and service execution are verified with synthetic transports and
-clocks. SPEC-002 live acceptance remains pending separate human authorization.
+clocks. Subsequent human-controlled live acceptance is recorded separately in the
+[release evidence](release.md).
 
 Known-ID processing/deferred jobs are independent of local FIT validity and current
 manifest membership. Failed GET never authorizes POST. No-ID uncertainty and processing
@@ -348,8 +349,9 @@ credentials needed for authorization. Local processing does not upload source JS
 Keep source and output locations separate: arbitrary caller-selected paths are not a
 general sandbox, although upload FIT paths have explicit containment checks. Token saves
 are atomic replacements; reports, FITs and SQLite have different persistence guarantees.
-Ignore patterns cover common artifacts, not all names, token temporary files or database
-sidecars. Follow [privacy guidance](privacy.md) and [security policy](../SECURITY.md).
+Ignore patterns cover common artifacts, token temporary files, SQLite sidecars and
+schema-upgrade backups; arbitrary names and locations still require review.
+Follow [privacy guidance](privacy.md) and [security policy](../SECURITY.md).
 
 ## Architectural invariants
 

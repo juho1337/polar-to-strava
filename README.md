@@ -207,9 +207,12 @@ codes, access tokens, or refresh tokens in an issue.
 
 ## Dry run and upload
 
-Production upload is enabled following SPEC-001 verification. SPEC-002 adds narrow
-linked-duplicate recognition and persistent stops for unrecognized duplicates. Its live
-acceptance requires separate human authorization before further migration or release. Local status, dry-run and safe reset work.
+Production upload uses the verified SPEC-001 recovery runner and SPEC-002 duplicate
+recognition and review-stop capacity policy. Human-controlled live acceptance exercised
+new uploads, duplicates, rate-reserve wait/resume and clean Ctrl+C interruption with
+retained recovery work. See the
+[release evidence and limitations](docs/release.md). Begin your own migration with
+local status, a dry run and a small batch.
 
 Inspect local progress first:
 
@@ -264,8 +267,8 @@ review. `duplicate_unrecognized` stops automatic observation across restart/rese
 while retaining the upload ID for separately authorized diagnosis. Reset preserves history; `--force` is a deprecated no-op. Never delete or edit
 `migration-state.sqlite3`, or restore a stale backup to bypass a recovery block.
 
-After separately authorized live acceptance, rerunning upload resumes permitted
-work. Short API reserves wait, daily reserves and HTTP 429 stop, and observations have
+Rerunning upload resumes permitted work. Short API reserves wait, daily reserves
+and HTTP 429 stop, and observations have
 bounded budgets. See [Resumable Strava uploader](docs/strava-uploader.md) for upgrade,
 backup, restart and compatibility limits. This is not an exactly-once guarantee.
 
@@ -314,6 +317,10 @@ OAuth, FIT integrity, upload-state, duplicate, rate-limit, and interruption guid
 Do not edit the SQLite database manually or blindly reset an `uncertain` upload.
 
 ## Development
+
+See the [changelog](CHANGELOG.md) and [release checklist](docs/release.md) for release
+history, compatibility notes and validation. Releases use matching package versions
+and `vMAJOR.MINOR.PATCH` tags; historical tag spellings are retained.
 
 Install development dependencies with `python -m pip install -e ".[dev]"`, then run:
 
