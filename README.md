@@ -207,6 +207,13 @@ codes, access tokens, or refresh tokens in an issue.
 
 ## Dry run and upload
 
+Production upload uses the verified SPEC-001 recovery runner and SPEC-002 duplicate
+recognition and review-stop capacity policy. Human-controlled live acceptance exercised
+new uploads, duplicates, rate-reserve wait/resume and clean Ctrl+C interruption with
+retained recovery work. See the
+[release evidence and limitations](docs/release.md). Begin your own migration with
+local status, a dry run and a small batch.
+
 Inspect local progress first:
 
 ```powershell
@@ -228,10 +235,9 @@ python main.py strava upload "C:\path\to\migration-workspace" --all
 
 Exactly one selector is required:
 
-- `--limit N`: select at most N new or retryable activities and also resume matching
-  activities already processing.
-- `--activity-id ID`: select one manifest activity by stable ID.
-- `--all`: select all eligible pending, retryable, and processing activities.
+- `--limit N`: select at most N submission candidates and retain matching known-ID observations.
+- `--activity-id ID`: select one current or retained recovery record by stable ID.
+- `--all`: select current and retained recovery work, including review and resolved outcomes.
 
 `--from` and `--to` accept `YYYY-MM-DD` filters. The safe defaults are three in-flight
 uploads (`--max-in-flight 3`) and a ten-request API reserve
@@ -246,35 +252,25 @@ Overall progress means:
 resolved eligible activities / total eligible activities
 ```
 
-Resolved includes completed uploads and authoritative duplicate responses from Strava.
-Processing, retryable, uncertain, and other problem states do not count as migrated.
-Duplicates and review states remain visible separately.
+Resolved is the union of authoritative completion and duplicate evidence for current
+eligible activities. Each activity counts once. Review and local blockers can overlap
+resolution or observation; retained ineligible/orphan work is shown separately.
 
-```text
-Strava migration
-Resolved       12 / 100 (12.00%)
-Migrated       11
-Duplicates      1
-Remaining      88
-Processing      3
-Retryable       0
-Needs review    0
-```
+Status/details are network-free and reflect saved evidence. Dry-run distinguishes
+`would_submit`, `would_observe`, `blocked/review` and `resolved`, without creating intent.
+Missing retained dates are explained; use explicit ID or unfiltered `--all` selection.
 
-`strava status` reads only the local manifest and SQLite state, so it consumes no Strava
-quota. If the process is interrupted or a rate limit stops it, resume with:
+The uploader is designed to prevent automatic duplicate resubmission when the result of
+an earlier upload is uncertain. Known upload IDs route to observation or review, never
+another POST due to a failed poll. No-ID uncertainty and processing failure require
+review. `duplicate_unrecognized` stops automatic observation across restart/reset,
+while retaining the upload ID for separately authorized diagnosis. Reset preserves history; `--force` is a deprecated no-op. Never delete or edit
+`migration-state.sqlite3`, or restore a stale backup to bypass a recovery block.
 
-```powershell
-python main.py strava upload "C:\path\to\migration-workspace" --all
-```
-
-> [!WARNING]
-> Do not delete `migration-state.sqlite3` during a migration. It prevents completed
-> activities from being selected again and preserves accepted Strava upload IDs.
-
-Actual Strava limits vary. The uploader reads overall and read-specific response headers,
-pauses at short-window reserves, and stops safely at daily reserves. Large migrations can
-therefore span multiple days. See [Resumable Strava uploader](docs/strava-uploader.md).
+Rerunning upload resumes permitted work. Short API reserves wait, daily reserves
+and HTTP 429 stop, and observations have
+bounded budgets. See [Resumable Strava uploader](docs/strava-uploader.md) for upgrade,
+backup, restart and compatibility limits. This is not an exactly-once guarantee.
 
 ## Command reference
 
@@ -287,7 +283,7 @@ therefore span multiple days. See [Resumable Strava uploader](docs/strava-upload
 | `strava auth WORKSPACE [--redirect-uri URI]` | Authorize and store workspace tokens. |
 | `strava status WORKSPACE [--details]` | Show local migration progress without an API request. |
 | `strava upload WORKSPACE SELECTOR [OPTIONS]` | Dry-run or upload manifest activities. |
-| `strava reset WORKSPACE --activity-id ID [--force]` | Explicitly reset local state; it never deletes a Strava activity. |
+| `strava reset WORKSPACE --activity-id ID [--force]` | Recheck corrected blockers and show safest action; preserve history. Force is a no-op. |
 
 Upload selectors are `--limit N`, `--activity-id ID`, and `--all`. Upload options also
 include `--dry-run`, `--from YYYY-MM-DD`, `--to YYYY-MM-DD`, `--max-in-flight`, and
@@ -322,6 +318,10 @@ Do not edit the SQLite database manually or blindly reset an `uncertain` upload.
 
 ## Development
 
+See the [changelog](CHANGELOG.md) and [release checklist](docs/release.md) for release
+history, compatibility notes and validation. Releases use matching package versions
+and `vMAJOR.MINOR.PATCH` tags; historical tag spellings are retained.
+
 Install development dependencies with `python -m pip install -e ".[dev]"`, then run:
 
 ```text
@@ -331,7 +331,10 @@ black --check .
 mypy .
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md), [Architecture](docs/architecture.md),
+[Python guidelines](docs/python-guidelines.md), [Testing](docs/testing.md), and
+[SECURITY.md](SECURITY.md). Substantial development follows the
+[specification workflow](specs/README.md).
 
 ## License
 

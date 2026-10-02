@@ -115,23 +115,6 @@ class StravaTokenResponse(BaseModel):
         )
 
 
-class UploadStatus(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: int | None = None
-    id_str: str | None = None
-    activity_id: int | None = None
-    external_id: str | None = None
-    error: str | None = None
-    status: str
-
-    @property
-    def upload_id(self) -> str:
-        value = self.id_str or (str(self.id) if self.id is not None else None)
-        if value is None:
-            raise ValueError("Strava upload response did not contain an upload ID")
-        return value
-
-
 class RateLimit(BaseModel):
     short_limit: int
     daily_limit: int

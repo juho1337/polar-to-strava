@@ -17,9 +17,10 @@ from polar import PolarImporter
 from services import ActivityValidator, ConversionService
 from services.audit import MigrationAudit
 from strava.client import StravaClient, TokenStore, authorization_url, credentials
-from strava.models import ManifestActivity, MigrationManifest
-from strava.progress import print_status, progress_table, snapshot
+from strava.models import MigrationManifest
+from strava.progress import RecoveryProgressRenderer, print_actions, print_status, snapshot
 from strava.rate_limit import RateLimitPolicy, RateWait
+from strava.recovery import Action, RecoveryEvent
 from strava.state import UploadStateStore
 from strava.uploader import Uploader
 
@@ -30,7 +31,10 @@ console = Console()
 
 
 def _state_store(workspace: Path) -> UploadStateStore:
-    return UploadStateStore(workspace / "migration-state.sqlite3")
+    store = UploadStateStore(workspace / "migration-state.sqlite3")
+    if store.backup_path is not None:
+        console.print("Private schema-1 backup: " + str(store.backup_path), markup=False)
+    return store
 
 
 @strava_app.command("auth")
@@ -63,7 +67,7 @@ def strava_upload(
     max_in_flight: Annotated[int, typer.Option("--max-in-flight", min=1, max=10)] = 3,
     rate_limit_reserve: Annotated[int, typer.Option("--rate-limit-reserve", min=0)] = 10,
 ) -> None:
-    """Upload eligible manifest activities with persistent resume state."""
+    """Preview locally or execute permitted submissions and known-upload observations."""
     if sum((limit is not None, activity_id is not None, all_activities)) != 1:
         raise typer.BadParameter("Choose exactly one of --limit, --activity-id, or --all")
     try:
@@ -73,77 +77,57 @@ def strava_upload(
         raise typer.BadParameter("Dates must use YYYY-MM-DD") from error
     try:
         with _state_store(workspace) as store:
-            client = None
-            if not dry_run:
-                client_id, client_secret = credentials()
-                client = StravaClient(
-                    client_id, client_secret, TokenStore(workspace / ".strava-tokens.json")
-                )
-            uploader = Uploader(workspace, store, client)
+            uploader = Uploader(workspace, store)
             selected = uploader.select(
-                limit=limit,
-                activity_id=activity_id,
-                from_date=parsed_from,
-                to_date=parsed_to,
-            )
-            initial = snapshot(uploader.manifest, store.summary())
-            console.print(
-                f"Manifest {len(uploader.manifest.activities)}; eligible {initial.eligible}; "
-                f"selected {len(selected)}."
+                limit=limit, activity_id=activity_id, from_date=parsed_from, to_date=parsed_to
             )
             if dry_run:
-                for index, item in enumerate(selected, 1):
-                    assert item.time.resolved_utc_start is not None
-                    console.print(
-                        f"[{index}/{len(selected)}] {item.time.resolved_utc_start.date()} "
-                        f"{item.sport.domain} would_upload"
-                    )
-            else:
-                live: Live | None = None
-
-                def rate_wait(wait: RateWait) -> None:
-                    console.print(
-                        f"API safety reserve reached; waiting until {wait.resume_at.isoformat()}."
-                    )
-
-                def update(activity: ManifestActivity | None, event: str) -> None:
-                    current = None
-                    if activity is not None:
-                        current = f"{activity.sport.domain} - {event}"
-                    current_progress = snapshot(uploader.manifest, store.summary())
-                    if live is not None:
-                        live.update(
-                            progress_table(
-                                current_progress,
-                                run_done=current_progress.resolved - initial.resolved,
-                                run_total=len(selected),
-                                rate=client.rate_limit if client else None,
-                                current=current,
-                            )
-                        )
-
-                policy = RateLimitPolicy(
-                    reserve=rate_limit_reserve, sleep=time.sleep, on_wait=rate_wait
+                print_actions(console, uploader.preview(selected), preview=True)
+                console.print(
+                    "Local preview only: no requests or submission intent. would_submit requires "
+                    "fresh checks on a later run and does not guarantee Strava acceptance."
                 )
-                uploader.max_in_flight = max_in_flight
-                uploader.rate_policy = policy
-                uploader.on_progress = update
-                if console.is_terminal:
-                    live = Live(
-                        progress_table(initial, run_done=0, run_total=len(selected)),
-                        console=console,
-                        refresh_per_second=4,
+                return
+            if not any(a.kind in {Action.SUBMIT, Action.OBSERVE} for a in selected):
+                print_actions(console, selected)
+                print_status(console, snapshot(uploader.manifest, store.records()))
+                return
+            client_id, client_secret = credentials()
+            client = StravaClient(
+                client_id, client_secret, TokenStore(workspace / ".strava-tokens.json")
+            )
+            renderer = RecoveryProgressRenderer(
+                uploader.manifest, store.records, rate_supplier=lambda: client.rate_limit
+            )
+            try:
+                with Live(renderer.render(), console=console, refresh_per_second=4) as live:
+
+                    def update(event: RecoveryEvent) -> None:
+                        renderer.update(event)
+                        live.update(renderer.render())
+
+                    def waiting(notice: RateWait) -> None:
+                        console.print(f"Rate reserve: waiting until {notice.resume_at.isoformat()}")
+
+                    uploader = Uploader(
+                        workspace,
+                        store,
+                        client,
+                        policy=RateLimitPolicy(
+                            reserve=rate_limit_reserve, sleep=time.sleep, on_wait=waiting
+                        ),
+                        clock=time.time,
+                        on_event=update,
+                        max_in_flight=max_in_flight,
                     )
-                    with live:
-                        uploader.run(selected)
-                else:
                     uploader.run(selected)
-                final = snapshot(uploader.manifest, store.summary())
-                if not console.is_terminal:
-                    print_status(console, final, details=True)
-                if uploader.last_stop_reason:
-                    console.print(f"Migration paused safely: {uploader.last_stop_reason}")
-                    console.print(f'Resume with: python main.py strava upload "{workspace}" --all')
+                    renderer.manifest = uploader.manifest
+                    live.update(renderer.render())
+            finally:
+                client.http.close()
+            console.print(
+                "Run finished. Inspect strava status --details for retained recovery actions."
+            )
     except PolarToStravaError as error:
         console.print(f"[red]Error:[/red] {error}")
         raise typer.Exit(code=1) from error
@@ -158,22 +142,28 @@ def strava_status(
     manifest, fingerprint = MigrationManifest.load(workspace)
     with _state_store(workspace) as store:
         store.reconcile(manifest, fingerprint)
-        current = snapshot(manifest, store.summary())
-    print_status(console, current, details)
+        records = store.records()
+        current = snapshot(manifest, records)
+    print_status(console, current, details, records=records)
 
 
 @strava_app.command("reset")
 def strava_reset(
     workspace: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
     activity_id: Annotated[str, typer.Option("--activity-id")],
-    force: Annotated[bool, typer.Option("--force")] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Deprecated no-op; cannot override recovery protection.")
+    ] = False,
 ) -> None:
-    """Reset selected local state; never delete a remote activity."""
+    """Recheck local blockers and report the safest action; preserve upload history."""
     manifest, fingerprint = MigrationManifest.load(workspace)
     with _state_store(workspace) as store:
         store.reconcile(manifest, fingerprint)
-        store.reset(activity_id, force)
-    console.print("Local upload state reset.")
+        actions = store.reset(activity_id, force)
+    if force:
+        console.print("--force is deprecated and cannot override recovery protection.")
+    console.print("Safest local action(s):")
+    print_actions(console, actions)
 
 
 @app.command()

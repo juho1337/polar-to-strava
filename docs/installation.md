@@ -2,8 +2,10 @@
 
 Polar Activity Migrator requires Python 3.12 or newer. The project is packaged with
 `pyproject.toml`; `pip install -e .` installs the application and its runtime dependencies.
-The optional `dev` extra adds the test and code-quality tools. `requirements.txt` mirrors
-the development dependency set but is not the installation method used by this guide.
+The optional `dev` extra adds the test and code-quality tools. `requirements.txt` is a
+compatibility entry point for an editable development install (`-e .[dev]`), using
+the same declarations rather than maintaining a second dependency list. Run it from
+the repository root. Use the installation commands below for a runtime-only install.
 
 ## Windows PowerShell
 

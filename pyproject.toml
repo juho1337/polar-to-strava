@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "polar-to-strava"
-version = "0.1.0"
+version = "0.2.0"
 description = "Migrate Polar Flow training exports to Strava with FIT or TCX."
 readme = "README.md"
 license = "GPL-3.0-only"
