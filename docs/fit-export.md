@@ -47,8 +47,8 @@ See [the source investigation](polar-altitude-power.md).
 
 Unknown Polar sports fall back to domain `other` and FIT generic. The domain
 has activity-level recorded time but no recorded time per lap; for multiple
-laps with an activity-level recorded duration, the exporter leaves individual
-lap timer durations absent.
+laps, each lap timer duration uses its elapsed start/end duration. A single lap
+uses activity-level recorded duration when supplied, otherwise its elapsed duration.
 Activity and session timer duration use recorded duration when supplied.
 The FIT exporter requires at least one lap and one trackpoint.
 
