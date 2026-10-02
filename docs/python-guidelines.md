@@ -118,8 +118,8 @@ Current runtime roles: Pydantic validates values, PyYAML loads scanner settings,
 Typer/Rich provide the CLI, lxml builds/validates TCX, fit-tool encodes/decodes FIT, and
 HTTPX handles Strava HTTP. SQLite, hashing and process workers use the standard library.
 Install with `python -m pip install -e ".[dev]"` for development. `requirements.txt` is
-a legacy list and currently omits fit-tool; it is not a complete mirror of project
-metadata. Setuptools lists packages explicitly and bundles TCX XSD files: new packages
+a compatibility entry point to the same editable development install, not an independent
+dependency list. Setuptools lists packages explicitly and bundles TCX XSD files: new packages
 or runtime resources require packaging review. Avoid unrelated tool-setting changes.
 
 ## Official reference material

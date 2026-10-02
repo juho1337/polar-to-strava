@@ -39,7 +39,8 @@ and refresh tokens.
   private backup you need.
 
 The repository `.gitignore` covers common workspace reports, manifests, FIT files,
-SQLite databases, token files, local environment files, and common export directory
+SQLite databases/sidecars/upgrade backups, token files and their temporary replacements,
+TCX outputs, local environment files, and common export/workspace directory
 names. Git ignore rules are a last line of defense; they do not protect files stored
 elsewhere or files already committed.
 
