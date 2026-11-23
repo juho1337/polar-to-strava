@@ -1,8 +1,8 @@
 # SPEC-004: Desktop integration contract
 
-Status: Draft
+Status: Approved
 Created: 2026-11-24
-Approval: pending (see Decisions)
+Approval: 2026-11-24, requesting user approved the specification and its D decisions with the stated recommendations
 Related: [SPEC-003](003-audit-performance.md), [parity matrix](../docs/desktop-parity-matrix.md)
 Consumer: future TrainingHub (.NET 10 WPF + Blazor Hybrid). No GUI is built in this work.
 
@@ -196,8 +196,41 @@ absolute paths unless the user opts in).
   confirmation required, config round-trips through `load_migration_config`, rerun
   updates status from `requires_configuration` to eligible, stable IDs unchanged.
 - **AC-11** CLI behavior and output unchanged (existing tests pass).
+- **AC-13** No loss of existing CLI operational visibility: for the same fixture
+  workspace, a parity test renders the CLI output (audit progress/summary, `status`,
+  `status --details`, `upload --dry-run`, upload progress/batch summary, rate-wait lines)
+  and asserts that every number, reason code and identifier shown has an equal value in
+  the structured events/results. CLI text is unchanged (existing tests).
 - **AC-12** Packaging evaluation documented (size, cold start, licensing) with a
   reproducible build script; not required to ship.
+
+## Implementation approach (reporting parity)
+
+- Reporting fields are identified from code and tabulated in the
+  [parity matrix](../docs/desktop-parity-matrix.md); gaps listed there are closed by
+  adding fields, never by removing CLI output.
+- Calculations are separated from Rich rendering: `strava.progress.snapshot` and
+  `classify_actions` are already pure; the audit renderer's rate/ETA/percentage and the
+  `RecoveryEvent` wait/batch text move into pure functions returning typed values used by
+  both the Rich renderer and the JSONL adapter. Rendered CLI text stays identical.
+- `AuditProgress` gains `fit_generated`/`fit_reused`; a `RateSnapshot` is produced from
+  `RateLimit` + policy + uploader state. Existing callbacks keep their signatures
+  (additive fields with defaults).
+- The parity test (AC-13) is table driven from the matrix so a CLI field without a
+  contract field fails the build.
+- Examples of audit, upload, wait, error and final-result events:
+  [contract examples](../docs/desktop-contract-examples.md).
+
+## UI component mapping (future, informative)
+
+| View | Components | Contract sources |
+| --- | --- | --- |
+| Overview dashboard | outcome cards (Completed, Duplicates, Unresolved separate), resolved progress bar with overlap footnote | `status`, `ProgressSnapshot.semantics` |
+| Live progress | phase stepper, bar, counters, rate/ETA (hidden when `eta_s` null), current activity, wait banner | `audit.*`, `upload.*`, `rate.wait` |
+| Activity table | virtualized grid, filters, "Why?" drill-down | `activity.list/get` |
+| Review queue | blocked, duplicate-review and needs-configuration items; only `next_actions` buttons | `ActivityDetail.next_actions`, `timezone.*`, `reset` |
+| API and scheduler diagnostics | quota gauges with "unknown" state, reserve, concurrency, polling budgets, collapsible advanced section | `RateSnapshot`, `upload.event` |
+| History and results | past runs (host DB), final summaries, sanitized export | `result`, `report.export` |
 
 ## UI specification (future, informative)
 

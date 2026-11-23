@@ -1,8 +1,8 @@
 # SPEC-003: Audit performance
 
-Status: Draft
+Status: Approved
 Created: 2026-11-24
-Approval: pending (see Decisions)
+Approval: 2026-11-24, requesting user approved the specification and its D decisions with the stated recommendations (D1, D2 opt-in, D4 yes; D3 out of scope)
 Related: [SPEC-004](004-desktop-integration-contract.md), [baseline](../docs/performance-baseline.md)
 Origin: [SPEC-002 future work](002-strava-duplicate-response-and-polling-termination.md#future-work-recommendation-audit-performance) (2,928 activities in 45m 03s)
 
