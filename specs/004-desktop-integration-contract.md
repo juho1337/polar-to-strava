@@ -1,6 +1,6 @@
 # SPEC-004: Desktop integration contract
 
-Status: Approved
+Status: Implemented
 Created: 2026-11-24
 Approval: 2026-11-24, requesting user approved the specification and its D decisions with the stated recommendations
 Related: [SPEC-003](003-audit-performance.md), [parity matrix](../docs/desktop-parity-matrix.md)
@@ -44,8 +44,9 @@ Envelope (all lines): `{"contract":"1.0","type":"event|result|error","seq":N,"ti
 `contract` follows semver: additive fields are minor; removals/renames are major; the host
 checks the major version via `engine version`.
 
-Cancellation: a `cancel` line on stdin, or closing stdin / CTRL_BREAK, triggers graceful
-shutdown: no new work is submitted, in-flight observations/audit tasks drain or persist as
+Cancellation: a `cancel` line on stdin, closing stdin when the request sets
+`cancel_on_stdin_close` (amendment: closing stdin alone would cancel every `echo {} | engine ...`
+pipeline), or CTRL_BREAK/SIGINT/SIGTERM triggers graceful shutdown: no new work is submitted, in-flight observations/audit tasks drain or persist as
 today, durable intent is flushed, then a `result` with `status:"cancelled"` is emitted.
 Hard kill is safe because of existing crash-window guarantees (SPEC-001) and atomic audit
 outputs (SPEC-003 AC-07).
@@ -253,3 +254,35 @@ are visually distinct; overlapping categories are labelled as overlapping.
 
 GUI, C# code, changing uploader/recovery semantics, Strava read-sync features beyond
 connection/scope handling.
+
+## Completion
+
+Implementation: branch `feat/desktop-integration-contract` (PR linked from the pull request). Stacked on
+the SPEC-003 branch because it uses `AuditCancelledError`, the audit progress additions and the cache.
+Status is *Implemented*; the final compliance review is for the maintainer.
+
+| Criterion | Evidence |
+| --- | --- |
+| AC-01 | `docs/contract/contract-1.0.schema.json`; `validate()` in `tests/test_integration_engine.py` checks every envelope of audit, upload and timezone runs, including gap-free `seq` |
+| AC-02, AC-13 | `test_status_parity_every_cli_row_has_a_contract_field` (fails when a CLI row has no mapping), `test_audit_summary_parity`, `test_status_details_cover_cli_detail_lines`; matrix in `docs/desktop-parity-matrix.md` |
+| AC-03 | audit, `audit.dry_run`, `status`, `activity.*`, `upload.dry_run`, `upload.run` (fake `httpx.MockTransport`) tests |
+| AC-04 | `test_upload_run_with_fake_transport_...` asserts unknown read windows are `null`/`known:false` |
+| AC-05 | audit cancel tests; `test_upload_cancel_mid_request_then_restart_does_not_post_again`; `test_upload_run_never_retries_uncertain_outcomes` |
+| AC-06 | `test_second_writer_is_refused_and_readers_continue` (engine and CLI) |
+| AC-07 | sentinel secret assertions in upload, OAuth, report export and invalid-request tests |
+| AC-08 | recovery database code unchanged; full existing suite passes; OAuth test compares records before and after |
+| AC-09 | `test_authorize_*`, `test_connection_*`, DPAPI test (Windows) |
+| AC-10 | `test_timezone_*` (list filters, Europe/Helsinki winter/summer, DST gap/overlap refusal, range, authoritative refusal, confirmation, atomic config, rerun, unchanged IDs) |
+| AC-11 | existing CLI tests pass; `AuditProgressRenderer` refactor verified by `test_audit_progress.py` |
+| AC-12 | `docs/packaging.md`, `packaging/build_engine.ps1`; built and run (45 MB, 0.6-0.8 s start-up) |
+
+Amendments and deviations (to be confirmed at review):
+
+- `cancel_on_stdin_close` is opt-in rather than always on (an EOF would cancel `echo {} | engine ...`).
+- `strava status` and activity reads reconcile only when no writer is active (`reconciled: false`
+  otherwise); the CLI `status` is unchanged and unlocked.
+- `upload.dry_run` takes the writer lock because the existing `preview` records local blockers.
+- The engine stores tokens through a new `TokenStoreLike` protocol; `exchange_code` gained
+  `required_scopes`, `authorization_url` gained `scopes`, `Uploader` gained `should_stop`; all additive
+  with CLI-compatible defaults.
+- `run_done` stays `null` because the CLI renderer never populated "This run".

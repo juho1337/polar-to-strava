@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/polar-to-strava/contract-1.0.schema.json",
+  "title": "polar-to-strava-engine contract 1.0 envelope",
+  "description": "Every stdout line of polar-to-strava-engine is exactly one of these envelopes. Additive fields are allowed within a major version.",
+  "oneOf": [
+    {"$ref": "#/$defs/auditPhase"},
+    {"$ref": "#/$defs/auditProgress"},
+    {"$ref": "#/$defs/auditActivity"},
+    {"$ref": "#/$defs/uploadProgress"},
+    {"$ref": "#/$defs/uploadEvent"},
+    {"$ref": "#/$defs/rateWait"},
+    {"$ref": "#/$defs/rateSnapshot"},
+    {"$ref": "#/$defs/result"},
+    {"$ref": "#/$defs/error"}
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": ["contract", "type", "seq", "time", "command", "run_id"],
+      "properties": {
+        "contract": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+        "type": {"enum": ["event", "result", "error"]},
+        "seq": {"type": "integer", "minimum": 1},
+        "time": {"type": "string"},
+        "command": {"type": "string"},
+        "run_id": {"type": "string"}
+      }
+    },
+    "nullableNumber": {"type": ["number", "null"]},
+    "window": {
+      "type": "object",
+      "required": ["usage", "limit", "remaining", "known"],
+      "properties": {
+        "usage": {"type": ["integer", "null"]},
+        "limit": {"type": ["integer", "null"]},
+        "remaining": {"type": ["integer", "null"]},
+        "known": {"type": "boolean"}
+      }
+    },
+    "auditPhase": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": ["event", "phase", "total"],
+          "properties": {
+            "type": {"const": "event"},
+            "event": {"const": "audit.phase"},
+            "phase": {"type": "string"},
+            "total": {"type": "integer"}
+          }
+        }
+      ]
+    },
+    "auditProgress": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": ["event", "completed", "total", "percent", "elapsed_s"],
+          "properties": {
+            "type": {"const": "event"},
+            "event": {"const": "audit.progress"},
+            "completed": {"type": "integer"},
+            "total": {"type": "integer"},
+            "percent": {"type": "number"},
+            "fit_valid": {"type": "integer"},
+            "fit_generated": {"type": "integer"},
+            "fit_reused": {"type": "integer"},
+            "cache_hits": {"type": "integer"},
+            "warnings": {"type": "integer"},
+            "failed": {"type": "integer"},
+            "skipped_existing": {"type": "integer"},
+            "elapsed_s": {"type": "number"},
+            "rate_per_s": {"$ref": "#/$defs/nullableNumber"},
+            "eta_s": {"$ref": "#/$defs/nullableNumber"}
+          }
+        }
+      ]
+    },
+    "auditActivity": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": ["event", "stable_activity_id", "source"],
+          "properties": {
+            "type": {"const": "event"},
+            "event": {"const": "audit.activity"},
+            "stable_activity_id": {"type": "string"},
+            "source": {"type": "string"},
+            "warnings": {"type": "array", "items": {"type": "string"}},
+            "validation_issues": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      ]
+    },
+    "uploadProgress": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": [
+            "event", "eligible", "resolved", "percent", "completed", "duplicate", "remaining",
+            "ready_to_submit", "observing", "needs_review", "local_blocked", "capacity_jobs",
+            "duplicate_review_stops", "outside_current_eligible", "outside_manifest",
+            "outside_resolved", "fit_bytes", "evidence", "semantics", "run_total"
+          ],
+          "properties": {
+            "type": {"const": "event"},
+            "event": {"const": "upload.progress"},
+            "evidence": {"const": "local_only"},
+            "semantics": {"type": "array", "items": {"type": "string"}},
+            "run_done": {"type": ["integer", "null"]},
+            "run_total": {"type": "integer"},
+            "current": {"type": ["string", "null"]}
+          }
+        }
+      ]
+    },
+    "uploadEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": [
+            "event", "identifier", "action", "reason_codes", "review_upload_ids", "wait_reason",
+            "next_poll_at", "polls_remaining", "failures_remaining", "batch"
+          ],
+          "properties": {
+            "type": {"const": "event"},
+            "event": {"const": "upload.event"},
+            "action": {"enum": ["submit", "observe", "review", "resolved"]},
+            "reason_codes": {"type": "array", "items": {"type": "string"}},
+            "review_upload_ids": {"type": "array", "items": {"type": "string"}},
+            "wait_reason": {"enum": ["processing_backoff", "transient_backoff", null]},
+            "next_poll_at": {"type": ["string", "null"]},
+            "polls_remaining": {"type": ["integer", "null"]},
+            "failures_remaining": {"type": ["integer", "null"]},
+            "batch": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "type": "object",
+                  "required": ["unattempted", "review", "observing", "capacity_jobs", "review_stops", "stopped"]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "rateWait": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": ["event", "reason", "seconds", "resume_at"],
+          "properties": {
+            "type": {"const": "event"},
+            "event": {"const": "rate.wait"},
+            "reason": {"type": "string"},
+            "seconds": {"type": "number"},
+            "resume_at": {"type": "string"}
+          }
+        }
+      ]
+    },
+    "rateSnapshot": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": ["event", "overall", "read", "reserve", "max_in_flight", "in_flight", "wait", "polling"],
+          "properties": {
+            "type": {"const": "event"},
+            "event": {"const": "rate.snapshot"},
+            "overall": {
+              "type": "object",
+              "required": ["short", "daily"],
+              "properties": {"short": {"$ref": "#/$defs/window"}, "daily": {"$ref": "#/$defs/window"}}
+            },
+            "read": {
+              "type": "object",
+              "required": ["short", "daily"],
+              "properties": {"short": {"$ref": "#/$defs/window"}, "daily": {"$ref": "#/$defs/window"}}
+            },
+            "reserve": {"type": "integer"},
+            "max_in_flight": {"type": "integer"},
+            "in_flight": {"type": "integer"},
+            "wait": {"type": ["object", "null"]},
+            "polling": {"type": ["object", "null"]}
+          }
+        }
+      ]
+    },
+    "result": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": ["status", "summary"],
+          "properties": {
+            "type": {"const": "result"},
+            "status": {"enum": ["completed", "completed_with_failures", "cancelled"]},
+            "summary": {"type": "object"}
+          }
+        }
+      ]
+    },
+    "error": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "required": ["error"],
+          "properties": {
+            "type": {"const": "error"},
+            "error": {
+              "type": "object",
+              "required": ["code", "message", "field", "details", "retryable"],
+              "properties": {
+                "code": {"type": "string"},
+                "message": {"type": "string"},
+                "field": {"type": ["string", "null"]},
+                "details": {"type": "object"},
+                "retryable": {"type": "boolean"}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

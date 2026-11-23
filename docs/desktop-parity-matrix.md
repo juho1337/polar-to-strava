@@ -85,7 +85,7 @@ selected batch; `status` and `--dry-run` use local evidence only (no Strava requ
 | Per-activity `would_submit / would_observe / blocked/review / resolved` with reasons | `upload.dry_run` result `actions[]` (same labels as codes) |
 | "Local preview only ... does not guarantee Strava acceptance" | `result.notice: "local_preview_only"` |
 | Selection (`--limit`/`--activity-id`/`--all`, `--from`/`--to`) | request fields; selected count in result |
-| Live table "This run N / M" | `upload.progress.run_done`, `run_total` |
+| Live table "This run N / M" (the CLI renderer never supplies it today) | `upload.progress.run_done` (null) and `run_total` (selected runnable activities) |
 | "Current: id: label (reasons)" | `upload.event` (`identifier, action, reason_codes`) |
 | Duplicate stop "automatic observation stopped; upload IDs" | `upload.event.review_upload_ids` + reason code |
 | Waiting line: reason, next GET time, GET budget remaining, consecutive-failure budget remaining | `upload.event.wait_reason`, `next_poll_at`, `polls_remaining`, `failures_remaining` |
@@ -114,7 +114,13 @@ selected batch; `status` and `--dry-run` use local evidence only (no Strava requ
 | "Safest local action(s)" list | `reset` result `actions[]`; `--force` deprecated, no override |
 | Private schema-1 backup path | `result.state_backup_path` (null if none) |
 
-## Gaps to close (CLI fields without structured form today)
+## Implementation status
+
+All rows above are implemented in `integration/snapshots.py` and enforced by
+`tests/test_integration_engine.py` (`test_status_parity_*`, `test_audit_summary_parity`,
+`test_status_details_cover_cli_detail_lines`). The gaps below were closed by SPEC-004.
+
+## Gaps closed (CLI fields that had no structured form)
 
 - Audit progress is a dataclass (`AuditProgress`) with no generated/reused split and no ETA field.
 - `RecoveryEvent` carries budgets and batch counters but no rate snapshot; `RateLimit` is read via a supplier.

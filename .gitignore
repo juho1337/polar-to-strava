@@ -34,3 +34,6 @@ migration-workspace/
 build/
 dist/
 .audit-cache.json
+.migration.lock
+.strava-athlete.json
+.strava-tokens.dpapi

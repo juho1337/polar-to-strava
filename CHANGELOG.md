@@ -22,6 +22,10 @@ new tags use `MAJOR.MINOR.PATCH` and `vMAJOR.MINOR.PATCH`. Existing tags are unc
   within a memory bound (`--workers`), outputs are written atomically and an opt-in
   `--incremental` cache reuses rows only when source, code version and FIT hash all match.
   Outputs are unchanged.
+- Desktop integration (SPEC-004): `polar-to-strava-engine` exposes audit, upload, status,
+  activity, Strava connection/OAuth and timezone-correction commands as versioned JSON Lines with
+  structured errors, cancellation, a shared single-writer workspace lock (also taken by the CLI)
+  and optional DPAPI-protected token storage. CLI output is unchanged.
 - Inspect saved status and dry-run actions locally. Safe reset preserves history and
   uncertainty; `--force` is a deprecated no-op.
 - Align the legacy requirements entry point with project metadata and extend artifact

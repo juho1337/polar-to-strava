@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import urlencode
 
 import httpx
@@ -69,6 +69,33 @@ class RequestFailure(Exception):
         self.status_code, self.evidence = status_code, evidence or ResponseEvidence()
 
 
+class ScopeNotGrantedError(ConfigurationError):
+    """Strava granted fewer permissions than the feature needs (no tokens are stored)."""
+
+    def __init__(self, missing: tuple[str, ...], granted: tuple[str, ...]) -> None:
+        super().__init__(f"Strava did not grant {missing[0]}")
+        self.missing, self.granted = missing, granted
+
+
+class TokenStoreLike(Protocol):
+    """Where OAuth tokens live; the default is a workspace file, hosts may supply another."""
+
+    def load(self) -> TokenSet: ...
+
+    def save(self, tokens: TokenSet) -> None: ...
+
+
+def public_athlete(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Only the non-secret identity fields of Strava's athlete object."""
+    if not isinstance(raw, dict) or type(raw.get("id")) is not int:
+        return None
+    return {
+        key: raw[key]
+        for key in ("id", "username", "firstname", "lastname")
+        if isinstance(raw.get(key), (int, str))
+    }
+
+
 class TokenStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -100,7 +127,10 @@ def credentials() -> tuple[str, str]:
 
 
 def authorization_url(
-    client_id: str, redirect_uri: str, state: str | None = None
+    client_id: str,
+    redirect_uri: str,
+    state: str | None = None,
+    scopes: tuple[str, ...] = (REQUIRED_SCOPE,),
 ) -> tuple[str, str]:
     nonce = state or secrets.token_urlsafe(24)
     query = urlencode(
@@ -109,7 +139,7 @@ def authorization_url(
             "redirect_uri": redirect_uri,
             "response_type": "code",
             "approval_prompt": "auto",
-            "scope": REQUIRED_SCOPE,
+            "scope": ",".join(scopes),
             "state": nonce,
         }
     )
@@ -121,7 +151,7 @@ class StravaClient:
         self,
         client_id: str,
         client_secret: str,
-        token_store: TokenStore,
+        token_store: TokenStoreLike,
         http: httpx.Client | None = None,
     ) -> None:
         self.client_id = client_id
@@ -129,15 +159,23 @@ class StravaClient:
         self.token_store = token_store
         self.http = http or httpx.Client(timeout=30)
         self.rate_limit: RateLimit | None = None
+        self.last_athlete: dict[str, Any] | None = None
 
-    def exchange_code(self, code: str, granted_scope: str | None = None) -> TokenSet:
+    def exchange_code(
+        self,
+        code: str,
+        granted_scope: str | None = None,
+        required_scopes: tuple[str, ...] = (REQUIRED_SCOPE,),
+    ) -> TokenSet:
         tokens = self._token_request(
             {"grant_type": "authorization_code", "code": code.strip()},
             fallback_scope=granted_scope,
             persist=False,
         )
-        if REQUIRED_SCOPE not in tokens.scope.split():
-            raise ConfigurationError(f"Strava did not grant {REQUIRED_SCOPE}")
+        granted = tuple(tokens.scope.replace(",", " ").split())
+        missing = tuple(scope for scope in required_scopes if scope not in granted)
+        if missing:
+            raise ScopeNotGrantedError(missing, granted)
         self.token_store.save(tokens)
         return tokens
 
@@ -168,6 +206,7 @@ class StravaClient:
             self._capture_rate_limit(response)
             api_response = StravaTokenResponse.model_validate(response.json())
             tokens = api_response.token_set(fallback_scope)
+            self.last_athlete = public_athlete(api_response.athlete)
         except (httpx.HTTPError, ValueError, ValidationError) as error:
             raise ConfigurationError(
                 f"Strava OAuth request failed: {type(error).__name__}"
