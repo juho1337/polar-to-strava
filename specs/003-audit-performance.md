@@ -1,6 +1,6 @@
 # SPEC-003: Audit performance
 
-Status: Approved
+Status: Implemented
 Created: 2026-11-24
 Approval: 2026-11-24, requesting user approved the specification and its D decisions with the stated recommendations (D1, D2 opt-in, D4 yes; D3 out of scope)
 Related: [SPEC-004](004-desktop-integration-contract.md), [baseline](../docs/performance-baseline.md)
@@ -95,3 +95,25 @@ manifest schema and recovery state are untouched.
 ## Out of scope
 
 Uploader changes, parser/semantic changes, C# rewrite, GUI.
+
+## Completion
+
+Implementation: branch `perf/audit-baseline-profiling` (PR linked from the pull request).
+Final compliance review pending maintainer review.
+
+| Criterion | Evidence |
+| --- | --- |
+| AC-01 | Benchmark fingerprints (manifest, FIT bytes, audit projection) equal baseline for all four run types; `test_worker_count_does_not_change_outputs_or_order` |
+| AC-02 | Same `_check_fit` and builder checks; `test_existing_fit_is_still_fully_validated_without_cache`; full existing suite |
+| AC-03 | `test_generated_fit_is_verified_once_and_hash_matches_disk`, `test_file_differing_from_verified_bytes_fails_as_fit_write` |
+| AC-04 | `default_workers` bounds test; bounded window `4 x workers`; ordering test; `test_cancellation_*` |
+| AC-05 | `test_incremental_*`, `test_cache_misses_when_fit_or_source_or_versions_change` (FIT bytes, source, code fingerprint, corrupt cache) |
+| AC-06 | Default path unchanged; existing-file validation test above |
+| AC-07 | `core/atomic.py`; `test_atomic_write_*`, `test_stale_temporaries_are_removed`, mid-run cancellation keeps previous manifest |
+| AC-08 | Row order/IDs/names unchanged (fingerprints equal) |
+| AC-09 | No `strava/` change; no network in tests |
+| AC-10 | `benchmarks/`, `docs/performance-baseline.md` (3x not reached by default: 2.27x cold, 1.75x warm, 58x incremental warm) |
+
+Deviations/limits: peak memory is higher with the larger worker default (documented);
+`fit_sha256`/`fit_bytes` of generated files derive from the verified in-memory bytes after a
+read-back hash proves the file identical, and a mismatch is reported as `fit_write`.

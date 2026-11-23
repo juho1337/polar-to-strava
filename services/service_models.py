@@ -46,6 +46,8 @@ class AuditProgress:
     warnings: int = 0
     failed: int = 0
     skipped_existing: int = 0
+    fit_generated: int = 0
+    cache_hits: int = 0
 
 
 AuditProgressCallback = Callable[[AuditProgress], None]

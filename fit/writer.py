@@ -2,11 +2,11 @@
 
 from pathlib import Path
 
+from core.atomic import atomic_write_bytes
+
 
 class FITWriter:
-    """Persist an already validated FIT document."""
+    """Persist an already validated FIT document atomically."""
 
     def write(self, content: bytes, destination: Path) -> Path:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(content)
-        return destination
+        return atomic_write_bytes(destination, content)

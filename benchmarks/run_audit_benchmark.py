@@ -164,11 +164,20 @@ def main() -> None:
     parser.add_argument("--label", default="run")
     parser.add_argument("--warm-runs", type=int, default=1)
     parser.add_argument("--json", type=Path, help="write results to this file")
+    parser.add_argument("audit_args", nargs="*", help="extra `audit` arguments, after --")
     args = parser.parse_args()
     count = sum(1 for _ in args.source.rglob("training-session-*.json"))
     output = args.work / f"out-{args.label}"
     shutil.rmtree(output, ignore_errors=True)
-    command = [sys.executable, str(ROOT / "main.py"), "audit", str(args.source), "-o", str(output)]
+    command = [
+        sys.executable,
+        str(ROOT / "main.py"),
+        "audit",
+        str(args.source),
+        "-o",
+        str(output),
+        *args.audit_args,
+    ]
     runs = []
     for name in ["cold"] + [f"warm{i + 1}" for i in range(args.warm_runs)]:
         result = measure(command)

@@ -33,3 +33,4 @@ migration-workspace/
 .ruff_cache/
 build/
 dist/
+.audit-cache.json

@@ -73,3 +73,33 @@ about 3.1 s each); roughly 1 M `fit_tool.field.Field` objects are constructed pe
    with the hash-keyed incremental cache (SPEC-003 D2).
 4. The remaining ranked bottleneck after D1 is `fit_tool` message decoding (`Field.__init__`,
    `definition_message.get_field`), addressed only by D3 (out of scope without differential tests).
+
+## After SPEC-003 (same data set, same machine)
+
+Changes: single decode of generated FIT (D1), worker default = CPU count within a memory
+bound (D4), initializer-based worker setup with a bounded ordered window, atomic outputs,
+opt-in `--incremental` cache (D2). Measured with the same harness (`-- --incremental` passes
+the flag to `audit`).
+
+| Run | Wall | Activities/s | CPU | Peak tree memory | Speed-up vs baseline |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| cold (default) | 64.4 s | 1.49 | 786 s | 7585 MB | **2.27x** (146.5 s) |
+| warm, full verification | 41.2 s | 2.33 | 501 s | 5667 MB | **1.75x** (72.2 s) |
+| cold, `--incremental` (cache written) | 49.8 s | 1.93 | 662 s | 7814 MB | 2.94x (noise vs default cold) |
+| warm, `--incremental` (all cache hits) | 1.24 s | 77.5 | 1.7 s | 145 MB | **58x** (vs full warm 72.2 s) |
+
+Interpretation:
+
+- **3x cold target:** not reached by default (2.27x; the incremental cold run measured 2.94x,
+  but cold runs differ only by noise, so treat both as ~2.3-2.9x). CPU time fell 29%
+  (1107 s to 786 s); the rest is parallelism (8 to 16 workers). The remaining cost is
+  `fit-tool` decoding of the single verification pass; going further needs a different
+  verified decoder (SPEC-003 D3, deliberately out of scope).
+- **Memory:** peak tree memory rose from 4.5 GB to 7.6 GB because 16 workers run instead of 8
+  (about 470 MB per worker). Workers are capped by available memory (700 MB estimate each) and
+  `--workers N` restores any lower setting.
+- **Warm incremental** re-verifies only that each FIT's SHA-256 and size equal the values
+  recorded when it was fully verified for the same source, override and code version.
+- **Equivalence:** manifest JSON/CSV, configuration template, every FIT byte and the
+  timing-free audit report projection are identical to the baseline for default cold,
+  default warm, incremental cold and incremental warm runs (fingerprints in the result JSON).

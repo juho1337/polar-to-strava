@@ -23,3 +23,7 @@ class ExportError(PolarToStravaError):
 
 class UploadError(PolarToStravaError):
     """An activity could not be uploaded."""
+
+
+class AuditCancelledError(PolarToStravaError):
+    """The audit was cancelled before any report or manifest was written."""

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import hashlib
+import io
 import json
 import os
-from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
+import sys
+from collections import Counter, deque
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import UTC, datetime, timedelta
-from itertools import repeat
 from math import isclose
 from pathlib import Path
 from time import perf_counter
@@ -19,12 +22,14 @@ from fit_tool.fit_file import FitFile  # type: ignore[import-untyped]
 from fit_tool.profile.messages.record_message import RecordMessage  # type: ignore[import-untyped]
 from fit_tool.profile.messages.session_message import SessionMessage  # type: ignore[import-untyped]
 
+from core.atomic import atomic_write_text, remove_stale_temporaries
 from core.contracts import ActivityImporter
-from core.errors import ConfigurationError
+from core.errors import AuditCancelledError, ConfigurationError
 from domain import Activity, Sport
 from fit import FITBuilder, FITWriter
 from fit.builder import SPORTS, fit_time
 from polar import PolarImporter
+from services.audit_cache import AuditCache, entry_key
 from services.migration import (
     MANIFEST_VERSION,
     MigrationConfig,
@@ -147,6 +152,11 @@ def _decode_fit(path: Path, activity: Activity) -> tuple[dict[str, int], int]:
     """Check stored FIT CRC, conformance and all representable sensor streams."""
     fit = FitFile.from_file(str(path))  # checks CRC by default
     fit.validate(raise_on_error=True)
+    return _check_fit(fit, activity), path.stat().st_size
+
+
+def _check_fit(fit: FitFile, activity: Activity) -> dict[str, int]:
+    """Compare a CRC-checked, validated decode with the domain activity."""
     messages = [item.message for item in fit.records]
     names = Counter(message.name for message in messages if hasattr(message, "name"))
     if any(
@@ -203,7 +213,7 @@ def _decode_fit(path: Path, activity: Activity) -> tuple[dict[str, int], int]:
                 value is not None and not isclose(value, actual, abs_tol=tolerance)
             ):
                 raise ValueError(f"FIT {field} differs from domain")
-    return counts, path.stat().st_size
+    return counts
 
 
 def _warnings(activity: Activity, source: dict[str, int], counts: dict[str, int]) -> list[str]:
@@ -410,11 +420,13 @@ def _process_one(
     row["warnings"] = _warnings(activity, source_counts, counts) + [
         issue.code for issue in validation.issues if issue.severity.value == "warning"
     ]
+    verified: FitFile | None = None
+    content: bytes | None = None
     if target.exists() and not overwrite:
         row["status"] = "skipped_existing"
     else:
         try:
-            content = FITBuilder().build(activity)
+            content, verified = FITBuilder().build_verified(activity)
         except Exception as error:
             row.update(
                 status="failed",
@@ -425,6 +437,9 @@ def _process_one(
             return row
         try:
             FITWriter().write(content, target)
+            # The builder decoded these exact bytes (CRC + conformance); prove the file holds them.
+            if file_sha256(target) != hashlib.sha256(content).hexdigest():
+                raise OSError("written FIT differs from verified bytes")
         except OSError as error:
             row.update(
                 status="failed",
@@ -435,13 +450,13 @@ def _process_one(
             return row
         row["status"] = "converted"
     try:
-        fit_counts, size = _decode_fit(target, activity)
-        row.update(
-            fit_counts=fit_counts,
-            fit_bytes=size,
-            fit_valid=True,
-            fit_sha256=file_sha256(target),
-        )
+        if verified is not None and content is not None:
+            fit_counts, size = _check_fit(verified, activity), len(content)
+            fit_hash = hashlib.sha256(content).hexdigest()
+        else:
+            fit_counts, size = _decode_fit(target, activity)
+            fit_hash = file_sha256(target)
+        row.update(fit_counts=fit_counts, fit_bytes=size, fit_valid=True, fit_sha256=fit_hash)
     except Exception as error:
         row.update(
             status="failed",
@@ -451,6 +466,110 @@ def _process_one(
             fit_valid=False,
         )
     return row
+
+
+# Peak resident memory of one worker handling a large (multi-hour, 1 Hz) activity.
+WORKER_MEMORY_ESTIMATE = 700 * 1024 * 1024
+_WORKER: dict[str, Any] = {}
+
+
+def _available_memory() -> int | None:
+    """Available physical memory in bytes, or None when it cannot be determined."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class _Status(ctypes.Structure):
+                _fields_ = [
+                    ("length", ctypes.c_ulong),
+                    ("load", ctypes.c_ulong),
+                    ("total_phys", ctypes.c_ulonglong),
+                    ("avail_phys", ctypes.c_ulonglong),
+                    ("total_page", ctypes.c_ulonglong),
+                    ("avail_page", ctypes.c_ulonglong),
+                    ("total_virtual", ctypes.c_ulonglong),
+                    ("avail_virtual", ctypes.c_ulonglong),
+                    ("avail_ext", ctypes.c_ulonglong),
+                ]
+
+            status = _Status()
+            status.length = ctypes.sizeof(_Status)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined,unused-ignore]
+                return int(status.avail_phys)
+            return None
+        return int(os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def default_workers(tasks: int) -> int:
+    """CPU-count workers bounded by the task count and available memory (at least one)."""
+    workers = min(os.cpu_count() or 2, tasks)
+    memory = _available_memory()
+    if memory is not None:
+        workers = min(workers, memory // WORKER_MEMORY_ESTIMATE)
+    return max(1, workers)
+
+
+def _init_worker(
+    importer: ActivityImporter,
+    validator: Validator,
+    source: Path,
+    fit_directory: Path,
+    overwrite: bool,
+) -> None:
+    _WORKER.update(
+        importer=importer,
+        validator=validator,
+        source=source,
+        fit_directory=fit_directory,
+        overwrite=overwrite,
+    )
+
+
+def _worker_task(path: Path, fingerprint: str, timezone_override: str | None) -> dict[str, Any]:
+    return _process_one(
+        path,
+        _WORKER["source"],
+        _WORKER["fit_directory"],
+        _WORKER["overwrite"],
+        _WORKER["importer"],
+        _WORKER["validator"],
+        fingerprint,
+        timezone_override,
+    )
+
+
+def _ordered_results(
+    tasks: Sequence[tuple[Path, str, str | None]],
+    workers: int,
+    initargs: tuple[Any, ...],
+    should_cancel: Callable[[], bool] | None,
+) -> Iterator[dict[str, Any]]:
+    """Yield rows in task order with a bounded number of in-flight tasks."""
+    if not tasks:
+        return
+    window = workers * 4
+    pending: deque[Future[dict[str, Any]]] = deque()
+    iterator = iter(tasks)
+    with ProcessPoolExecutor(
+        max_workers=workers, initializer=_init_worker, initargs=initargs
+    ) as executor:
+        try:
+            while True:
+                while len(pending) < window:
+                    task = next(iterator, None)
+                    if task is None:
+                        break
+                    pending.append(executor.submit(_worker_task, *task))
+                if not pending:
+                    return
+                if should_cancel is not None and should_cancel():
+                    raise AuditCancelledError("audit cancelled")
+                yield pending.popleft().result()
+        finally:
+            for future in pending:
+                future.cancel()
 
 
 class MigrationAudit:
@@ -467,9 +586,14 @@ class MigrationAudit:
         overwrite: bool = False,
         config: Path | None = None,
         progress: AuditProgressCallback | None = None,
+        *,
+        workers: int | None = None,
+        incremental: bool = False,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         started = perf_counter()
         output.mkdir(parents=True, exist_ok=True)
+        remove_stale_temporaries(output)
         fit_directory = output / "fits"
         if progress:
             progress(AuditProgress(AuditPhase.DISCOVERY_STARTED))
@@ -519,38 +643,69 @@ class MigrationAudit:
         warning_count = 0
         failed = 0
         skipped_existing = 0
-        with ProcessPoolExecutor(
-            max_workers=max(1, min(8, len(paths), os.cpu_count() or 2))
-        ) as executor:
-            results = executor.map(
-                _process_one,
-                paths,
-                repeat(source),
-                repeat(fit_directory),
-                repeat(overwrite),
-                repeat(self.importer),
-                repeat(self.validator),
-                fingerprints,
-                override_values,
-            )
-            for completed, row in enumerate(results, 1):
-                rows.append(row)
-                fit_valid += bool(row.get("fit_valid"))
-                warning_count += len(row["warnings"])
-                failed += row["status"] == "failed"
-                skipped_existing += row["status"] == "skipped_existing"
-                if progress:
-                    progress(
-                        AuditProgress(
-                            AuditPhase.PROCESSING_ACTIVITIES,
-                            completed=completed,
-                            total=len(paths),
-                            fit_valid=fit_valid,
-                            warnings=warning_count,
-                            failed=failed,
-                            skipped_existing=skipped_existing,
-                        )
+        generated = 0
+        cache_hits = 0
+        cache = (
+            AuditCache(output, self.importer, self.validator)
+            if incremental and not overwrite
+            else None
+        )
+        keys: list[str] = []
+        cached: dict[int, dict[str, Any]] = {}
+        misses: list[tuple[Path, str, str | None]] = []
+        for index, (path, fingerprint, override) in enumerate(
+            zip(paths, fingerprints, override_values, strict=True)
+        ):
+            relative = path.relative_to(source).as_posix()
+            keys.append(entry_key(relative, fingerprint, override))
+            hit = None
+            if cache is not None:
+                relative_hash = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:10]
+                target = fit_directory / f"{fingerprint}-{relative_hash}.fit"
+                hit = cache.lookup(keys[index], target)
+                if hit is not None:
+                    hit["output_fit"] = str(target)
+                    hit["status"] = "skipped_existing"
+                    cached[index] = hit
+            if hit is None:
+                misses.append((path, fingerprint, override))
+        worker_count = max(1, workers) if workers else default_workers(len(misses))
+        computed = _ordered_results(
+            misses,
+            worker_count,
+            (self.importer, self.validator, source, fit_directory, overwrite),
+            should_cancel,
+        )
+        for index in range(len(paths)):
+            if should_cancel is not None and should_cancel():
+                raise AuditCancelledError("audit cancelled")
+            if index in cached:
+                row = cached[index]
+                cache_hits += 1
+            else:
+                row = next(computed)
+            if cache is not None:
+                cache.remember(keys[index], row)
+            rows.append(row)
+            fit_valid += bool(row.get("fit_valid"))
+            warning_count += len(row["warnings"])
+            failed += row["status"] == "failed"
+            skipped_existing += row["status"] == "skipped_existing"
+            generated += row["status"] == "converted"
+            if progress:
+                progress(
+                    AuditProgress(
+                        AuditPhase.PROCESSING_ACTIVITIES,
+                        completed=index + 1,
+                        total=len(paths),
+                        fit_valid=fit_valid,
+                        warnings=warning_count,
+                        failed=failed,
+                        skipped_existing=skipped_existing,
+                        fit_generated=generated,
+                        cache_hits=cache_hits,
                     )
+                )
         duplicate_candidates = _duplicates(rows)
         for row in rows:
             row["migration_status"] = classify(row).value
@@ -636,6 +791,8 @@ class MigrationAudit:
             "warnings": sum(warnings.values()),
             "failed": failed,
             "skipped_existing": skipped_existing,
+            "fit_generated": generated,
+            "cache_hits": cache_hits,
         }
         if progress:
             progress(AuditProgress(AuditPhase.GENERATING_REPORTS, **final_progress))
@@ -643,6 +800,8 @@ class MigrationAudit:
         if progress:
             progress(AuditProgress(AuditPhase.WRITING_MANIFEST, **final_progress))
         self._write_manifest(output, source, rows, migration_statuses)
+        if cache is not None:
+            cache.save()
         if progress:
             progress(AuditProgress(AuditPhase.COMPLETE, **final_progress))
         return report
@@ -703,9 +862,7 @@ class MigrationAudit:
             "summary": {"total": len(entries), "status_counts": dict(sorted(statuses.items()))},
             "activities": entries,
         }
-        (output / "migration-manifest.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
-        )
+        manifest_text = json.dumps(manifest, indent=2)
         columns = [
             "stable_activity_id",
             "source_relative_path",
@@ -722,7 +879,7 @@ class MigrationAudit:
             "fit_size_bytes",
             "fit_valid",
         ]
-        with (output / "migration-manifest.csv").open("w", newline="", encoding="utf-8") as stream:
+        with contextlib.nullcontext(io.StringIO(newline="")) as stream:
             writer = csv.DictWriter(stream, fieldnames=columns)
             writer.writeheader()
             for entry in entries:
@@ -744,6 +901,7 @@ class MigrationAudit:
                         "fit_valid": entry["fit"]["valid"],
                     }
                 )
+        atomic_write_text(output / "migration-manifest.csv", stream.getvalue(), newline="")
         requirements = {
             row["stable_activity_id"]: {
                 "source_filename": row["source_filename"],
@@ -765,14 +923,15 @@ class MigrationAudit:
             },
             "review_requirements": requirements,
         }
-        (output / "migration-config.template.json").write_text(
-            json.dumps(template, indent=2), encoding="utf-8"
-        )
+        atomic_write_text(output / "migration-config.template.json", json.dumps(template, indent=2))
+        # The manifest is the uploader's input: replace it last so a crash never pairs a new
+        # manifest with stale companions.
+        atomic_write_text(output / "migration-manifest.json", manifest_text)
 
     @staticmethod
     def _write_reports(output: Path, report: dict[str, Any]) -> None:
-        (output / "migration-audit.json").write_text(
-            json.dumps(report, indent=2, default=dict), encoding="utf-8"
+        atomic_write_text(
+            output / "migration-audit.json", json.dumps(report, indent=2, default=dict)
         )
         columns = [
             "source",
@@ -806,7 +965,7 @@ class MigrationAudit:
             for layer in ("source", "domain", "fit")
             for sensor in (*SENSORS, "records", "left_crank_power")
         ]
-        with (output / "migration-audit.csv").open("w", newline="", encoding="utf-8") as stream:
+        with contextlib.nullcontext(io.StringIO(newline="")) as stream:
             writer = csv.DictWriter(stream, fieldnames=columns)
             writer.writeheader()
             for row in report["activities"]:
@@ -816,6 +975,7 @@ class MigrationAudit:
                     for sensor in (*SENSORS, "records", "left_crank_power"):
                         flat[f"{layer}_{sensor}"] = row.get(f"{layer}_counts", {}).get(sensor)
                 writer.writerow(flat)
+        atomic_write_text(output / "migration-audit.csv", stream.getvalue(), newline="")
         summary = report["summary"]
         lines = [
             "# Polar migration audit",
@@ -886,4 +1046,4 @@ class MigrationAudit:
             "",
             "No files were uploaded to Strava.",
         ]
-        (output / "migration-audit.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        atomic_write_text(output / "migration-audit.md", "\n".join(lines) + "\n")
