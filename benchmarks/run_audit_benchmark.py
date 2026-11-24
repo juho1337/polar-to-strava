@@ -140,7 +140,10 @@ def _run_posix(command: list[str]) -> dict[str, Any]:
         "cpu_user_s": user,
         "cpu_kernel_s": kernel,
         "processes": None,
-        "peak_job_memory_mb": maxrss / rss_unit,
+        # ru_maxrss is the largest single process, not the simultaneous memory of the process
+        # tree, so it is reported under its own name and never as the whole-job peak.
+        "peak_job_memory_mb": None,
+        "peak_process_memory_mb": maxrss / rss_unit,
         "io_read_mb": None,
         "io_write_mb": None,
     }
