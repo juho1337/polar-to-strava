@@ -14,6 +14,7 @@ from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
+from services.audit_metrics import audit_metrics
 from services.service_models import AuditPhase, AuditProgress
 
 PHASE_LABELS = {
@@ -128,30 +129,25 @@ class AuditProgressRenderer:
             table = Table(show_header=False, box=None, padding=(0, 1))
             table.add_column(style="bold")
             table.add_column(justify="right")
-            percentage = 100 * event.completed / event.total if event.total else 100.0
-            table.add_row("Processed", f"{event.completed} / {event.total} ({percentage:.1f}%)")
-            table.add_row("FIT valid", str(event.fit_valid))
-            table.add_row("Warnings", str(event.warnings))
-            table.add_row("Failed", str(event.failed))
-            table.add_row("Skipped existing", str(event.skipped_existing))
             elapsed = self.clock() - self.started_at
-            table.add_row("Elapsed", _duration(elapsed))
             processing_elapsed = (
                 self.clock() - self.processing_started_at
                 if self.processing_started_at is not None
                 else 0.0
             )
-            if event.completed and processing_elapsed > 0:
-                rate = event.completed / processing_elapsed
-                table.add_row("Rate", f"{rate:.2f} activities/s")
-                if (
-                    event.completed >= 5
-                    and processing_elapsed >= 2
-                    and event.total > event.completed
-                ):
-                    table.add_row(
-                        "Estimated left", f"~{_duration((event.total - event.completed) / rate)}"
-                    )
+            metrics = audit_metrics(event.completed, event.total, processing_elapsed)
+            table.add_row(
+                "Processed", f"{event.completed} / {event.total} ({metrics.percent:.1f}%)"
+            )
+            table.add_row("FIT valid", str(event.fit_valid))
+            table.add_row("Warnings", str(event.warnings))
+            table.add_row("Failed", str(event.failed))
+            table.add_row("Skipped existing", str(event.skipped_existing))
+            table.add_row("Elapsed", _duration(elapsed))
+            if metrics.rate_per_s is not None:
+                table.add_row("Rate", f"{metrics.rate_per_s:.2f} activities/s")
+                if metrics.eta_s is not None:
+                    table.add_row("Estimated left", f"~{_duration(metrics.eta_s)}")
             items.append(table)
         return Group(*items)
 

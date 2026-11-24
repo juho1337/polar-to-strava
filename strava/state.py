@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.errors import ValidationError
 from services.migration import file_sha256
@@ -35,6 +35,9 @@ from strava.recovery import (
     submission_permission,
 )
 from strava.state_migration import block_shared_upload_ids, ensure_schema
+
+if TYPE_CHECKING:
+    from strava.client import TokenStoreLike
 
 
 class UploadState(StrEnum):
@@ -416,8 +419,17 @@ class UploadStateStore:
                     self._block(old.stable_activity_id, f"attempt:{attempt_id}", reason, True)
                 self._touch(old.stable_activity_id)
 
-    def reset(self, identifier: str, force: bool = False) -> tuple[ActionDecision, ...]:
-        """The deprecated force argument intentionally has no effect on recovery."""
+    def reset(
+        self,
+        identifier: str,
+        force: bool = False,
+        token_store: TokenStoreLike | None = None,
+    ) -> tuple[ActionDecision, ...]:
+        """The deprecated force argument intentionally has no effect on recovery.
+
+        ``token_store`` is the store the user reconnected into; the default is the workspace's
+        ``.strava-tokens.json``.
+        """
         record = self.load(identifier)
         activity = self._activities.get(identifier)
         corrected = False
@@ -448,7 +460,8 @@ class UploadStateStore:
                 from strava.client import REQUIRED_SCOPE, TokenStore
 
                 try:
-                    token = TokenStore(self.path.parent / ".strava-tokens.json").load()
+                    store = token_store or TokenStore(self.path.parent / ".strava-tokens.json")
+                    token = store.load()
                     repaired = REQUIRED_SCOPE in token.scope.split() and bool(token.refresh_token)
                 except ConfigurationError:
                     repaired = False

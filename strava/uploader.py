@@ -56,8 +56,10 @@ class Uploader:
         poll_interval: float = 2,
         max_polls: int = 60,
         max_retries: int = 3,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
         self.workspace, self.store = workspace, store
+        self.should_stop = should_stop
         self.client = client
         self.policy = policy or RateLimitPolicy(sleep=time.sleep)
         self.clock, self.on_event = clock, on_event
@@ -163,6 +165,7 @@ class Uploader:
                 poll_interval=self.poll_interval,
                 max_polls=self.max_polls,
                 max_retries=self.max_retries,
+                should_stop=self.should_stop,
             ).run(activities)
             self.manifest, _ = MigrationManifest.load(self.workspace)
         return snapshot(self.manifest, self.store.records())
@@ -184,7 +187,9 @@ class _RecoveryRunner:
         poll_interval: float = 2,
         max_polls: int = 60,
         max_retries: int = 3,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
+        self.should_stop = should_stop
         if not 1 <= max_in_flight <= 10 or max_polls < 1 or max_retries < 1:
             raise ValueError("Invalid observation capacity or budget")
         self.workspace, self.store, self.client = workspace, store, client
@@ -193,6 +198,12 @@ class _RecoveryRunner:
         self.poll_interval = max(1.0, poll_interval)
         self.stopped = False
         self.last_event: RecoveryEvent | None = None
+
+    def _stop_requested(self) -> bool:
+        """Cooperative cancellation: checked between requests, never inside one."""
+        if not self.stopped and self.should_stop is not None and self.should_stop():
+            self.stopped = True
+        return self.stopped
 
     def _access(self, *, read: bool = False) -> PreparedAccess:
         while True:
@@ -231,6 +242,8 @@ class _RecoveryRunner:
             self.store.set_blocker(identifier, "activity", error.code)
             self._notify(identifier)
             return True
+        if self._stop_requested():  # cancelled while access was being prepared or refreshed
+            return True
         manifest, fingerprint = MigrationManifest.load(self.workspace)
         self.store.reconcile(manifest, fingerprint)
         activity = next(
@@ -246,6 +259,9 @@ class _RecoveryRunner:
                     return False
                 record = self.store.load(identifier)
                 if not submission_permission(record, activity, artifact, True).allowed:
+                    return True
+                # Last cancellation point: nothing is persisted or sent until intent is recorded.
+                if self._stop_requested():
                     return True
                 attempt = self.store.begin_submission(identifier, record.revision, artifact, True)
                 try:
@@ -398,11 +414,11 @@ class _RecoveryRunner:
         jobs: dict[int, ProcessingJob] = {}
         self._restore(identifiers, jobs, restored=True)
         try:
-            while not self.stopped:
-                while pending and len(jobs) < self.capacity and not self.stopped:
+            while not self._stop_requested():
+                while pending and len(jobs) < self.capacity and not self._stop_requested():
                     self.submit(pending.pop(0))
                     self._restore(identifiers, jobs, restored=False)
-                if self.stopped:
+                if self._stop_requested():
                     break
                 active = [job for job in jobs.values() if not job.deferred]
                 if not active:
@@ -424,6 +440,8 @@ class _RecoveryRunner:
                     )
                 if delay > 0:
                     self.policy.sleep(delay)
+                if self._stop_requested():
+                    break
                 self._observe(job)
                 self._restore(identifiers, jobs, restored=False)
         except KeyboardInterrupt:
