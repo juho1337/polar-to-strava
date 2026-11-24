@@ -10,11 +10,11 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator
 
 from core.errors import ConfigurationError
 from strava.client import API_URL, RequestFailure, StravaClient
@@ -53,6 +53,17 @@ class _Row(BaseModel):
     average_heartrate: float | None = None
     private: bool = False
     external_id: str | None = None
+
+    @field_validator("start_date")
+    @classmethod
+    def _start_has_a_zone(cls, value: str) -> str:
+        """An unparsable or zone-less start time makes the whole page untrusted."""
+        moment = datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        )  # ValueError -> invalid_response
+        if moment.tzinfo is None:
+            raise ValueError("start_date has no timezone")
+        return value
 
 
 _ROWS = TypeAdapter(list[_Row])
@@ -158,12 +169,9 @@ def list_activities(
 
 def _within(row: _Row, start: datetime, end: datetime) -> bool:
     """Exact ``[start, end)`` check on the returned start time (the API filter is coarser)."""
-    try:
-        moment = datetime.fromisoformat(row.start_date.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
+    moment = datetime.fromisoformat(
+        row.start_date.replace("Z", "+00:00")
+    )  # validated by the row model
     return start <= moment < end
 
 

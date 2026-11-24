@@ -327,3 +327,13 @@ def test_missing_matching_measurements_are_a_malformed_response_not_zeros(
     summary = results(lines)["summary"]
     assert summary["complete"] is False and summary["stopped"]["code"] == "invalid_response"
     assert summary["count"] == 0  # no fabricated zero is returned as evidence
+
+
+@pytest.mark.parametrize("start", ["not-a-date", "2025-03-01T08:00:00", "", "2025-13-45T99:00:00Z"])
+def test_invalid_or_zone_less_start_times_make_the_page_untrusted(
+    tmp_path: Path, start: str
+) -> None:
+    _, lines, _, _ = run(tmp_path, paged([[row(1), row(2, start)]]))
+    summary = results(lines)["summary"]
+    assert summary["complete"] is False and summary["stopped"]["code"] == "invalid_response"
+    assert summary["count"] == 0  # not even the valid row of the bad page is trusted
