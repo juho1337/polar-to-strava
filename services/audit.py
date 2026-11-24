@@ -29,7 +29,7 @@ from domain import Activity, Sport
 from fit import FITBuilder, FITWriter
 from fit.builder import SPORTS, fit_time
 from polar import PolarImporter
-from services.audit_cache import AuditCache, entry_key
+from services.audit_cache import CACHE_FILENAME, AuditCache, entry_key
 from services.migration import (
     MANIFEST_VERSION,
     MigrationConfig,
@@ -573,6 +573,21 @@ def _ordered_results(
                 future.cancel()
 
 
+# Destinations written atomically into the audit output directory; only their stale
+# temporaries are cleaned up at the start of a run.
+AUDIT_OUTPUT_NAMES = frozenset(
+    {
+        "migration-manifest.csv",
+        "migration-manifest.json",
+        "migration-config.template.json",
+        "migration-audit.json",
+        "migration-audit.csv",
+        "migration-audit.md",
+        CACHE_FILENAME,
+    }
+)
+
+
 class MigrationAudit:
     """Process one workout at a time and account for every discovered source."""
 
@@ -594,7 +609,7 @@ class MigrationAudit:
     ) -> dict[str, Any]:
         started = perf_counter()
         output.mkdir(parents=True, exist_ok=True)
-        remove_stale_temporaries(output)
+        remove_stale_temporaries(output, AUDIT_OUTPUT_NAMES)
         fit_directory = output / "fits"
         if progress:
             progress(AuditProgress(AuditPhase.DISCOVERY_STARTED))
@@ -707,6 +722,9 @@ class MigrationAudit:
                         cache_hits=cache_hits,
                     )
                 )
+        # The last activity (or an empty discovery) may finish after cancellation was requested.
+        if should_cancel is not None and should_cancel():
+            raise AuditCancelledError("audit cancelled")
         duplicate_candidates = _duplicates(rows)
         for row in rows:
             row["migration_status"] = classify(row).value
@@ -795,6 +813,8 @@ class MigrationAudit:
             "fit_generated": generated,
             "cache_hits": cache_hits,
         }
+        if should_cancel is not None and should_cancel():
+            raise AuditCancelledError("audit cancelled")  # before any output is replaced
         if progress:
             progress(AuditProgress(AuditPhase.GENERATING_REPORTS, **final_progress))
         self._write_reports(output, report)
