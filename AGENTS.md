@@ -92,11 +92,66 @@ If a spec proves incorrect, incomplete or impossible, stop affected implementati
 review/approve its revision before continuing. Tests are evidence, not a substitute for
 the specification or permission to silently reinterpret acceptance criteria.
 
-Keep Git changes scoped. Pushes, merges, releases, remote settings changes and destructive
-actions require an explicit request; a request to edit code does not authorize them.
+Keep Git changes scoped. Releases, remote settings changes and destructive actions require
+an explicit request. Pushing a feature branch and opening or updating its pull request is
+part of the [AI-assisted workflow](#ai-assisted-workflow-and-review) below; merging is
+never part of it.
 
 Repository specifications and project instructions take precedence over generic agent
 workflows. External research, planning, debugging, testing and review skills may help
 execute approved behavior; optional TDD must not replace SDD or impose strict test-first
 ordering. Humans and different agents must be able to contribute without a particular
 provider, IDE, plugin or proprietary workflow.
+
+## AI-assisted workflow and review
+
+Roles: **Claude Code** is the primary developer (architecture, implementation, tests,
+documentation, issues, pull requests, addressing review findings, requesting re-reviews).
+**Codex** is the independent reviewer. The **repository owner** gives final approval,
+merges pull requests and authorizes real external operations (live Strava uploads, OAuth).
+An agent must never merge its own pull request.
+
+- Use feature branches. Prefer substantial, coherent pull requests over many small ones,
+  each linked to its issue and filled in with the pull request template.
+- Stack pull requests only when a real dependency requires it; document the dependency
+  (base branch, required order) in the description. Do not change the same code in
+  conflicting branches, and do not add unrelated work to an open pull request.
+- Claude may keep implementing independent work while other pull requests are in review
+  and does not need approval for routine implementation and testing decisions.
+- Run the checks in [Testing](docs/testing.md) before opening or updating a pull request,
+  and keep the description and test evidence current.
+- Every substantial pull request needs an independent Codex review (automatic, or comment
+  `@codex review`; use `@codex security review` for credential, OAuth, process or file
+  handling changes). An unreviewed pull request is not ready to merge.
+- Address every confirmed critical and high (P0/P1) finding. Evaluate medium (P2) findings
+  and record any justified exception in the pull request, replying to a rejected finding
+  with the reason. Re-run tests afterwards and request another review when the change
+  materially affects reviewed behavior.
+- Automated tests use synthetic data, mock Strava and never perform live uploads. Add a
+  regression test for each fix.
+- What GitHub can and cannot enforce (branch protection, Codex review) is described in
+  [GitHub settings](docs/github-settings.md).
+
+## Review guidelines
+
+For Codex pull request reviews. Report actionable findings with severity (P0 to P3), the
+affected file and line, and the failure scenario. Do not report style preferences as
+defects. Priorities, highest first:
+
+1. FIT/TCX output correctness (fields, units, record ordering, lap and summary integrity).
+2. Polar activity parsing (malformed or partial files, units, missing optional data).
+3. Data integrity and timestamp preservation (no guessed timestamps or timezone offsets,
+   no clamped or invented values, DST edges).
+4. Performance regressions (audit throughput, memory, worker pool behavior).
+5. Strava API behavior (scopes, rate limits, response handling, recovery states).
+6. Duplicate and retry safety (uncertain uploads never blindly resent, state persisted
+   around each request, no automatic merge of suspected duplicates).
+7. JSON Lines engine compatibility (contract version, event shapes, stdout purity,
+   cancellation, exit codes) with the JuhoRunLab desktop host.
+8. CLI backward compatibility (commands, options, output, exit codes, config files).
+9. Executable packaging (PyInstaller build reproducibility, bundled data, spawn safety).
+10. Automated test coverage of new behavior, failure paths and edge cases.
+
+Also check credential and personal-data handling (tokens or private exports in code, logs,
+reports, fixtures or error messages), path traversal and malformed file input, and
+data-loss or corruption risks. See [SECURITY.md](SECURITY.md).

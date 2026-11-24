@@ -27,9 +27,10 @@ mypy .
 
 These commands are the completion checks, including for substantial documentation work.
 Installation is setup, not something to repeat on every validation run. Pytest discovers
-`tests/` with `-ra`; tool settings live in `pyproject.toml`. There are no tracked GitHub
-Actions workflows enforcing these checks, and no configured coverage threshold or custom
-test markers. Do not claim CI ran merely because local checks passed.
+`tests/` with `-ra`; tool settings live in `pyproject.toml`. The `CI` GitHub Actions
+workflow (`.github/workflows/ci.yml`) runs the same four commands on pull requests and on
+`main`. There is no configured coverage threshold or custom test markers. Do not claim CI
+ran merely because local checks passed.
 
 Without activation on Windows, invoke the same tools through the environment:
 
