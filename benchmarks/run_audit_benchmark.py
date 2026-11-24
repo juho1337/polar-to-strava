@@ -111,20 +111,36 @@ def _run_windows(command: list[str]) -> dict[str, Any]:
     }
 
 
-def _run_posix(command: list[str]) -> dict[str, Any]:
-    import resource
+# RUSAGE_CHILDREN is cumulative for every child the calling process has already waited for,
+# and ru_maxrss never decreases. Each measurement therefore runs inside a fresh wrapper
+# process whose own children counter starts at zero, which isolates one run from the next.
+_POSIX_WRAPPER = (
+    "import json,resource,subprocess,sys;"
+    "code=subprocess.run(sys.argv[1:],stdout=subprocess.DEVNULL,"
+    "stderr=subprocess.DEVNULL).returncode;"
+    "u=resource.getrusage(resource.RUSAGE_CHILDREN);"
+    "print(json.dumps([code,u.ru_utime,u.ru_stime,u.ru_maxrss]))"
+)
 
+
+def _run_posix(command: list[str]) -> dict[str, Any]:
     start = time.perf_counter()
-    code = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    completed = subprocess.run(
+        [sys.executable, "-c", _POSIX_WRAPPER, *command],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     wall = time.perf_counter() - start
-    usage = resource.getrusage(resource.RUSAGE_CHILDREN)  # type: ignore[attr-defined,unused-ignore]
+    code, user, kernel, maxrss = json.loads(completed.stdout.strip().splitlines()[-1])
+    rss_unit = 1024 * 1024 if sys.platform == "darwin" else 1024  # bytes on macOS, KiB on Linux
     return {
         "exit_code": code,
         "wall_s": wall,
-        "cpu_user_s": usage.ru_utime,
-        "cpu_kernel_s": usage.ru_stime,
+        "cpu_user_s": user,
+        "cpu_kernel_s": kernel,
         "processes": None,
-        "peak_job_memory_mb": usage.ru_maxrss / 1024,
+        "peak_job_memory_mb": maxrss / rss_unit,
         "io_read_mb": None,
         "io_write_mb": None,
     }

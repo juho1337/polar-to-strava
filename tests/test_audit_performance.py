@@ -247,8 +247,61 @@ def test_stale_temporaries_are_removed(tmp_path: Path) -> None:
     stale.write_bytes(b"partial")
     keep = tmp_path / "migration-manifest.json"
     keep.write_bytes(b"{}")
-    remove_stale_temporaries(tmp_path)
+    remove_stale_temporaries(tmp_path, audit_module.AUDIT_OUTPUT_NAMES)
     assert not stale.exists() and keep.exists()
+
+
+def test_cleanup_never_touches_unrelated_hidden_temporaries(tmp_path: Path) -> None:
+    unrelated = tmp_path / ".notes.tmp"
+    unrelated.write_bytes(b"mine")
+    other_pid = tmp_path / ".something.else.123.tmp"
+    other_pid.write_bytes(b"mine too")
+    owned = tmp_path / ".migration-audit.csv.42.tmp"
+    owned.write_bytes(b"partial")
+    remove_stale_temporaries(tmp_path, audit_module.AUDIT_OUTPUT_NAMES)
+    assert unrelated.exists() and other_pid.exists() and not owned.exists()
+
+
+def test_audit_start_keeps_unrelated_hidden_files_in_the_output_directory(tmp_path: Path) -> None:
+    source = make_source(tmp_path, 1)
+    output = tmp_path / "out"
+    output.mkdir()
+    unrelated = output / ".notes.tmp"
+    unrelated.write_bytes(b"mine")
+    run(source, output)
+    assert unrelated.read_bytes() == b"mine"
+
+
+def test_cancellation_requested_during_the_last_activity_publishes_nothing(
+    tmp_path: Path,
+) -> None:
+    source = make_source(tmp_path, 1)
+    output = tmp_path / "out"
+    run(source, output)
+    manifest = (output / "migration-manifest.json").read_bytes()
+    state = {"processed": False}
+
+    def on_progress(event: AuditProgress) -> None:
+        if event.phase is AuditPhase.PROCESSING_ACTIVITIES:
+            state["processed"] = True
+
+    with pytest.raises(AuditCancelledError):
+        run(
+            source,
+            output,
+            workers=1,
+            overwrite=True,
+            progress=on_progress,
+            should_cancel=lambda: state["processed"],
+        )
+    assert (output / "migration-manifest.json").read_bytes() == manifest
+
+
+def test_cancellation_with_empty_discovery_still_raises(tmp_path: Path) -> None:
+    source = tmp_path / "empty-source"
+    source.mkdir()
+    with pytest.raises(AuditCancelledError):
+        run(source, tmp_path / "out", workers=1, should_cancel=lambda: True)
 
 
 def test_default_workers_are_cpu_and_memory_bounded(monkeypatch: pytest.MonkeyPatch) -> None:

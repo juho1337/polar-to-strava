@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import time
+from collections.abc import Collection
 from pathlib import Path
 
 
@@ -41,8 +43,18 @@ def atomic_write_text(destination: Path, text: str, *, newline: str | None = Non
     return atomic_write_bytes(destination, data)
 
 
-def remove_stale_temporaries(directory: Path) -> None:
-    """Delete leftover ``.<name>.<pid>.tmp`` files from an interrupted run."""
+_TEMPORARY_NAME = re.compile(r"^\.(?P<name>.+)\.\d+\.tmp$")
+
+
+def remove_stale_temporaries(directory: Path, owned_names: Collection[str]) -> None:
+    """Delete leftover ``.<name>.<pid>.tmp`` files of ``owned_names`` from an interrupted run.
+
+    Only temporaries of the named destinations are removed, so unrelated hidden ``*.tmp``
+    files that happen to live in the same directory are never touched.
+    """
     for path in directory.glob(".*.tmp"):
+        match = _TEMPORARY_NAME.match(path.name)
+        if match is None or match["name"] not in owned_names or not path.is_file():
+            continue
         with contextlib.suppress(OSError):
             path.unlink()
