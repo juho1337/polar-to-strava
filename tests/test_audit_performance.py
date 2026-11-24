@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -203,6 +204,34 @@ def test_incremental_is_bypassed_by_overwrite(tmp_path: Path) -> None:
     run(source, output, incremental=True, overwrite=True, progress=events.append)
     final = [e for e in events if e.phase is AuditPhase.COMPLETE][-1]
     assert final.cache_hits == 0 and final.fit_generated == 1
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda row: row.pop("warnings"),
+        lambda row: row.update(warnings="not-a-list"),
+        lambda row: row.update(warnings=[1]),
+        lambda row: row.pop("status"),
+        lambda row: row.update(fit_bytes="12"),
+        lambda row: row.pop("source_sha256"),
+    ],
+)
+def test_structurally_corrupt_cache_entries_are_misses_not_errors(
+    tmp_path: Path, damage: Callable[[dict[str, Any]], object]
+) -> None:
+    source = make_source(tmp_path, 2)
+    output = tmp_path / "out"
+    run(source, output, incremental=True)
+    path = output / CACHE_FILENAME
+    document = json.loads(path.read_text(encoding="utf-8"))
+    damage(next(iter(document["entries"].values())))
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    events: list[AuditProgress] = []
+    run(source, output, incremental=True, progress=events.append)  # must not raise KeyError
+    final = [e for e in events if e.phase is AuditPhase.COMPLETE][-1]
+    assert final.cache_hits == 1  # only the intact entry is reused; the damaged one is re-verified
 
 
 def test_cancellation_writes_no_reports_and_leaves_no_temporaries(tmp_path: Path) -> None:

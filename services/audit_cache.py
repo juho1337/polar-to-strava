@@ -42,6 +42,31 @@ def code_fingerprint() -> str:
     return digest.hexdigest()
 
 
+# Fields the audit indexes directly after a cache hit. A hit missing one of them, or holding the
+# wrong type, is a structurally corrupt cache entry and must be treated as a miss (SPEC-003 AC-05).
+_REQUIRED_ROW_FIELDS: dict[str, tuple[type, ...]] = {
+    "status": (str,),
+    "warnings": (list,),
+    "original_sport": (str, type(None)),
+    "source": (str,),
+    "source_filename": (str,),
+    "source_sha256": (str,),
+    "stable_activity_id": (str,),
+    "fit_valid": (bool,),
+    "fit_sha256": (str,),
+    "fit_bytes": (int,),
+}
+
+
+def _structurally_valid(entry: dict[str, Any]) -> bool:
+    for name, types in _REQUIRED_ROW_FIELDS.items():
+        if name not in entry or not isinstance(entry[name], types):
+            return False
+        if name == "fit_bytes" and isinstance(entry[name], bool):
+            return False
+    return all(isinstance(item, str) for item in entry["warnings"])
+
+
 def entry_key(relative: str, source_sha256: str, timezone_offset: str | None) -> str:
     return f"{relative}|{source_sha256}|{timezone_offset or ''}"
 
@@ -73,6 +98,8 @@ class AuditCache:
         """Return a copy of the cached row when its FIT artifact is still byte-identical."""
         entry = self.entries.get(key)
         if not isinstance(entry, dict) or not entry.get("fit_valid") or not entry.get("fit_sha256"):
+            return None
+        if not _structurally_valid(entry):
             return None
         try:
             if fit_path.stat().st_size != entry.get("fit_bytes"):
