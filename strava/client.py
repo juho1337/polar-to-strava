@@ -179,15 +179,17 @@ class StravaClient:
         self.token_store.save(tokens)
         return tokens
 
-    def access_token(self) -> str:
+    def access_token(self, accept: tuple[str, ...] = (REQUIRED_SCOPE,)) -> str:
+        """A usable access token; ``accept`` lists scopes of which at least one must be granted."""
         tokens = self.token_store.load()
         if tokens.expires_at <= int(time.time()) + 3600:
             tokens = self._token_request(
                 {"grant_type": "refresh_token", "refresh_token": tokens.refresh_token},
                 fallback_scope=tokens.scope,
             )
-        if REQUIRED_SCOPE not in tokens.scope.split():
-            raise ConfigurationError(f"Strava token does not grant {REQUIRED_SCOPE}")
+        granted = set(tokens.scope.replace(",", " ").split())
+        if not granted.intersection(accept):
+            raise ConfigurationError(f"Strava token does not grant {' or '.join(accept)}")
         return tokens.access_token
 
     def _token_request(
@@ -215,9 +217,9 @@ class StravaClient:
             self.token_store.save(tokens)
         return tokens
 
-    def prepare_access(self) -> PreparedAccess:
+    def prepare_access(self, accept: tuple[str, ...] = (REQUIRED_SCOPE,)) -> PreparedAccess:
         try:
-            token = self.access_token()
+            token = self.access_token(accept)
             return PreparedAccess(token, self.token_store.load().expires_at)
         except (ConfigurationError, OSError):
             raise RequestFailure(

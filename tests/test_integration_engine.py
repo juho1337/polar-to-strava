@@ -95,7 +95,7 @@ def test_version_and_every_command_registered() -> None:
     code, lines, _ = call("version", {})
     assert code == 0
     summary = results(lines)["summary"]
-    assert summary["contract"] == "1.0" and summary["commands"] == sorted(COMMANDS)
+    assert summary["contract"] == "1.1" and summary["commands"] == sorted(COMMANDS)
     validate(lines)
 
 

@@ -9,6 +9,7 @@ Use the links below to open them from the documentation folder.
 - [SPEC-002: Strava Duplicate Response Recognition & Polling Termination](../specs/002-strava-duplicate-response-and-polling-termination.md) (Verified capacity amendment, 2026-10-01)
 - [SPEC-003: Audit performance](../specs/003-audit-performance.md)
 - [SPEC-004: Desktop integration contract](../specs/004-desktop-integration-contract.md)
+- [SPEC-005: Strava activity lookup for duplicate detection](../specs/005-strava-activity-lookup.md) (Draft)
 
 The linked files are the canonical documents. Check each specification's metadata
 for its current review and approval status.

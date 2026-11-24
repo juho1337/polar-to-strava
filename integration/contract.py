@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import IO, Any
 
-CONTRACT_VERSION = "1.0"
+CONTRACT_VERSION = "1.1"
 
 EXIT_OK = 0
 EXIT_FAILURE = 1

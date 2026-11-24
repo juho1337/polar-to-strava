@@ -43,6 +43,7 @@ from integration.contract import (
 )
 from integration.lock import WorkspaceLockedError
 from integration.requests import (
+    ActivitiesListRequest,
     ActivityGetRequest,
     ActivityListRequest,
     AuditRequest,
@@ -91,6 +92,7 @@ def _version(request: Request, context: Context) -> dict[str, Any]:
             "cancellation": True,
             "dpapi_token_store": sys.platform == "win32",
             "timezone_iana": iana,
+            "activity_lookup": True,
         },
     }
 
@@ -112,6 +114,7 @@ COMMANDS: dict[str, Command] = {
         AuthorizeCompleteRequest, commands_strava.authorize_complete
     ),
     "strava.disconnect": Command(ConnectionRequest, commands_strava.disconnect),
+    "strava.activities.list": Command(ActivitiesListRequest, commands_strava.activities_list),
     "timezone.list_unresolved": Command(TimezoneListRequest, commands_audit.timezone_list),
     "timezone.preview": Command(TimezonePreviewRequest, commands_audit.timezone_preview),
     "timezone.apply": Command(TimezoneApplyRequest, commands_audit.timezone_apply),

@@ -1,4 +1,4 @@
-# Desktop integration contract (1.0)
+# Desktop integration contract (1.1)
 
 The Python engine is the only migration engine. A desktop host (the future JuhoRunLab app)
 drives it through `polar-to-strava-engine`, never by parsing CLI text. Specification:
@@ -44,6 +44,7 @@ polar-to-strava-engine <command>          # or: python -m integration <command>
 | `strava.authorize.begin` | `redirect_uri`, `features[]`, `credentials?` | none | no |
 | `strava.authorize.complete` | `code`, `state`, `expected_state`, `granted_scope`, `features[]` | token store | Strava |
 | `strava.disconnect` | `token_store?` | token store | no |
+| `strava.activities.list` | `from_utc`, `to_utc`, `max_pages?`, `credentials?`, `token_store?` | token store (refresh only) | no |
 | `timezone.list_unresolved` | `from_date`, `to_date`, `sport`, `reason`, `config?` | none | no |
 | `timezone.preview` | `choices[]`, `iana_zone?` | none | no |
 | `timezone.apply` | as preview plus `source`, `confirm`, `config?`, `incremental?` | config + audit outputs | no |
@@ -123,6 +124,23 @@ sequenceDiagram
 - Scopes: `migration` requests `activity:write`; `sync` requests `activity:read_all`. Insufficient
   grants fail with `insufficient_scope` and store nothing. `upload.run` requires `activity:write`.
 - Reauthorizing, reconnecting or disconnecting never touches the recovery history.
+
+## Strava activity lookup (1.1, SPEC-005)
+
+`strava.activities.list` reads the athlete's existing activities in `[from_utc, to_utc)` (at most 400 days)
+so a host can detect duplicates before uploading. It never writes to Strava, takes the workspace lock
+(token refresh writes the token store) and needs `activity:read_all` (`activity:read` works but reports
+`limited_visibility: true`, because private activities are then invisible).
+
+- Events: `strava.activities.page` (`page`, `count`, `total`), plus `rate.wait` when it waits for a window.
+- Result summary: `complete`, `covered_from`/`covered_to` (equal to the request only when `complete`),
+  `pages`, `limited_visibility`, `stopped` (`{code, message}` or null), `count` and `activities`.
+- Each activity holds only `strava_id`, `start_utc`, `start_local`, `timezone`, `sport_type`, `distance_m`,
+  `moving_time_s`, `elapsed_time_s`, `average_hr`, `private`, `external_id`. Names, descriptions and routes are never returned.
+- **Incomplete means unknown:** after a rate limit, daily limit, cancel, network or server error the result has
+  `complete: false` and null coverage (status `completed_with_failures`, or `cancelled`). The host must treat the
+  whole window as unavailable and never conclude "no match"; returned activities remain valid evidence of a match.
+- Errors before any request: `not_authorized`, `insufficient_scope`, `validation_failed` (window), `workspace_locked`.
 
 ## Timezone workflow
 
