@@ -709,6 +709,52 @@ def test_timezone_apply_requires_confirmation_then_reruns_audit(audited: tuple[P
     assert results(lines)["summary"]["total"] == 0
 
 
+def test_timezone_apply_holds_the_workspace_lock_through_the_audit(
+    audited: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from integration.lock import WorkspaceLock, WorkspaceLockedError
+    from services.audit import MigrationAudit
+
+    source, output = audited
+    _, lines, _ = call("timezone.list_unresolved", {"workspace": str(output)})
+    ids = [i["stable_activity_id"] for i in results(lines)["summary"]["activities"]]
+    original = MigrationAudit.run
+    probes: list[str] = []
+
+    def probing(self: MigrationAudit, *args: Any, **kwargs: Any) -> Any:
+        try:
+            with WorkspaceLock(output, "competing-writer"):
+                probes.append("acquired")  # another writer could have changed the offsets
+        except WorkspaceLockedError:
+            probes.append("locked")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(MigrationAudit, "run", probing)
+    acquisitions: list[str] = []
+    init = WorkspaceLock.__init__
+
+    def recording(self: WorkspaceLock, workspace: Path, command: str, *rest: Any) -> None:
+        if command != "competing-writer":
+            acquisitions.append(command)
+        init(self, workspace, command, *rest)
+
+    monkeypatch.setattr(WorkspaceLock, "__init__", recording)
+    request = {
+        "workspace": str(output),
+        "source": str(source),
+        "iana_zone": "Europe/Helsinki",
+        "choices": [{"stable_activity_id": value} for value in ids],
+        "workers": 1,
+        "confirm": True,
+    }
+    _, lines, _ = call("timezone.apply", request)  # exit 1: the fixture has a failed activity
+    assert results(lines)["summary"]["applied"] == 2
+    assert probes == ["locked"]
+    # One uninterrupted acquisition covers the config write and the audit; releasing and
+    # re-acquiring (a second "audit" lock) would leave a window for another writer.
+    assert acquisitions == ["timezone.apply"]
+
+
 # --- report export and secrets -----------------------------------------------------------
 
 

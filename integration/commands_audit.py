@@ -69,6 +69,34 @@ class _AuditEvents:
         )
 
 
+def _audit_under_lock(
+    context: Context,
+    *,
+    source: Path,
+    workspace: Path,
+    config: Path | None,
+    overwrite: bool = False,
+    incremental: bool = False,
+    workers: int | None = None,
+) -> dict[str, Any]:
+    """Run the audit. The caller must already hold the workspace lock."""
+    return MigrationAudit(PolarImporter(), ActivityValidator()).run(
+        source,
+        workspace,
+        overwrite,
+        config,
+        _AuditEvents(context),
+        workers=workers,
+        incremental=incremental,
+        should_cancel=context.cancel.is_set,
+    )
+
+
+def _emit_activities(context: Context, report: dict[str, Any]) -> None:
+    for row in report["activities"]:
+        context.emit.event("audit.activity", **audit_activity_dict(row))
+
+
 def run_audit(
     context: Context,
     *,
@@ -80,18 +108,16 @@ def run_audit(
     workers: int | None = None,
 ) -> dict[str, Any]:
     with WorkspaceLock(workspace, "audit"):
-        report = MigrationAudit(PolarImporter(), ActivityValidator()).run(
-            source,
-            workspace,
-            overwrite,
-            config,
-            _AuditEvents(context),
-            workers=workers,
+        report = _audit_under_lock(
+            context,
+            source=source,
+            workspace=workspace,
+            config=config,
+            overwrite=overwrite,
             incremental=incremental,
-            should_cancel=context.cancel.is_set,
+            workers=workers,
         )
-    for row in report["activities"]:
-        context.emit.event("audit.activity", **audit_activity_dict(row))
+    _emit_activities(context, report)
     return report
 
 
@@ -401,14 +427,17 @@ def timezone_apply(request: TimezoneApplyRequest, context: Context) -> dict[str,
         }
         atomic_write_text(path, json.dumps(document, indent=2))
         load_migration_config(path)  # the written file must round-trip through the engine's schema
-    report = run_audit(
-        context,
-        source=request.source,
-        workspace=request.workspace,
-        config=path,
-        incremental=request.incremental,
-        workers=request.workers,
-    )
+        # Same lock as the config write: no other writer can replace the confirmed offsets
+        # between publishing them and auditing with them.
+        report = _audit_under_lock(
+            context,
+            source=request.source,
+            workspace=request.workspace,
+            config=path,
+            incremental=request.incremental,
+            workers=request.workers,
+        )
+    _emit_activities(context, report)
     rows = {row["stable_activity_id"]: row for row in report["activities"]}
     return {
         "applied": len(items),
