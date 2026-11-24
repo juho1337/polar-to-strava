@@ -63,6 +63,7 @@ there are no separate unit/integration directory trees.
 | `test_sprint81.py` | Route/session bounds, lap reconstruction, ambiguous time, summary-only exclusion and equal-time observations |
 | `test_audit.py` | End-to-end local audit, reports, reruns, stable identity, timezone configuration, loss exclusion and progress/manifest independence |
 | `test_audit_performance.py` | SPEC-003: worker-count output equivalence, single-decode generation, written-vs-verified bytes, full validation of existing FITs, incremental cache hits/invalidation, cancellation, atomic writes, bounded workers |
+| `test_integration_engine.py` | SPEC-004: contract envelopes against the JSON Schema, structured errors, CLI parity (status table, audit summary, details), fake-transport upload, cancellation and restart without a second POST, workspace lock (engine and CLI), secrets absence, OAuth state/scope handling and recovery preservation, DPAPI store, timezone list/preview/apply with historical DST, sanitized report export |
 | `test_audit_progress.py` | Nonterminal CLI phases, empty/failed audits and completion summaries |
 | `test_strava_uploader.py` | Manifest selection, integrity, SQLite/reconciliation/reset, resume/duplicates, bounded observation, uncertain outcomes, OAuth, rate policy, pipeline capacity and local progress/status |
 

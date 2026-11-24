@@ -350,6 +350,15 @@ means reports/manifest were written, not that every activity succeeded. Callback
 in the parent process as ordered results arrive. `AuditProgressRenderer` chooses live
 Rich output or bounded static phase messages; it does not alter eligibility.
 
+The `integration/` package adapts these services for a desktop host without a second
+engine: `polar-to-strava-engine` reads a JSON request from stdin and writes versioned JSON Lines
+(`integration/contract.py`, schemas in `docs/contract/`). `integration/snapshots.py` holds pure
+mappings of every CLI-visible value; `services/audit_metrics.py` is the shared rate/ETA calculation
+used by both the Rich renderer and the events. `integration/lock.py` provides the single-writer
+workspace lock that the CLI also takes. The engine only calls `MigrationAudit`, `Uploader`,
+`UploadStateStore` and `StravaClient`; it adds no migration or recovery logic. See
+[desktop integration](desktop-integration.md).
+
 Uploader callbacks carry `RecoveryEvent(identifier, action, reason_codes)`, including
 retained IDs absent from the manifest. Rate waits use a separate `RateWait` callback.
 Evidence-based snapshots count each activity once per category; overlapping review and

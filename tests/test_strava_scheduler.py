@@ -345,3 +345,31 @@ def test_date_unavailable_review_does_not_schedule_get(tmp_path: Path) -> None:
         assert result == tuple(selected)
         engine(root, store, client).run(uploader.select(activity_id=identifier))
         assert client.gets == ["1"] and len(client.posts) == 1
+
+
+def test_cancellation_during_access_preparation_sends_nothing(tmp_path: Path) -> None:
+    root, identifier = workspace(tmp_path)
+    client = Pipeline(Clock())
+    state = {"stop": False}
+    prepare = client.prepare_access
+
+    def prepare_then_cancel() -> PreparedAccess:
+        access = prepare()
+        state["stop"] = True  # cancellation arrives while the token is being refreshed
+        return access
+
+    client.prepare_access = prepare_then_cancel  # type: ignore[method-assign]
+    clock = client.clock
+    with UploadStateStore(root / "migration-state.sqlite3") as store:
+        selected = Uploader(root, store).select()
+        runner = _RecoveryRunner(
+            root,
+            store,
+            client,
+            RateLimitPolicy(clock=clock.utc, sleep=clock.sleep),
+            clock=clock.time,
+            should_stop=lambda: state["stop"],
+        )
+        runner.run(selected)
+        assert client.requests == []  # no POST after cancellation
+        assert store.load(identifier).attempts == ()  # no submission intent recorded

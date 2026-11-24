@@ -526,3 +526,52 @@ def start_attempt(store: UploadStateStore, uploader: Uploader, identifier: str) 
         record.revision,
     )
     return store.begin_submission(identifier, record.revision, artifact, True).attempt_id
+
+
+class _FakeTokenStore:
+    """A reconnected token store somewhere other than the workspace default file."""
+
+    def load(self) -> TokenSet:
+        return TokenSet(
+            access_token="synthetic-access",
+            refresh_token="synthetic-refresh",
+            expires_at=9999999999,
+            scope="activity:write",
+        )
+
+    def save(self, tokens: TokenSet) -> None:
+        raise AssertionError("reset must only read tokens")
+
+
+def test_reset_validates_the_selected_token_store_when_clearing_authorization_blockers(
+    tmp_path: Path,
+) -> None:
+    root, identifier = workspace(tmp_path)
+    with UploadStateStore(root / "migration-state.sqlite3") as store:
+        Uploader(root, store)
+        store.set_blocker(identifier, "activity", Code.AUTHORIZATION)
+
+        store.reset(identifier)  # default store: no tokens in the workspace file, stays blocked
+        assert any(
+            b.active and b.code == Code.AUTHORIZATION for b in store.load(identifier).blockers
+        )
+
+        store.reset(identifier, token_store=_FakeTokenStore())  # tokens in the selected store
+        assert not any(
+            b.active and b.code == Code.AUTHORIZATION for b in store.load(identifier).blockers
+        )
+
+
+def test_reset_command_accepts_a_token_store_selection(tmp_path: Path) -> None:
+    from tests.test_integration_engine import call, results
+
+    root, identifier = workspace(tmp_path)
+    code, lines, _ = call(
+        "reset",
+        {
+            "workspace": str(root),
+            "activity_id": identifier,
+            "token_store": {"kind": "dpapi", "path": str(tmp_path / "tokens.dpapi")},
+        },
+    )
+    assert code == 0 and results(lines)["summary"]["actions"][0]["kind"] == "submit"

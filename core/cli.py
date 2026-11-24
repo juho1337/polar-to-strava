@@ -13,6 +13,7 @@ from config.loader import load_config
 from core.audit_progress import AuditProgressRenderer
 from core.errors import PolarToStravaError
 from core.logging import configure_logging
+from integration.lock import WorkspaceLock
 from polar import PolarImporter
 from services import ActivityValidator, ConversionService
 from services.audit import MigrationAudit
@@ -76,7 +77,7 @@ def strava_upload(
     except ValueError as error:
         raise typer.BadParameter("Dates must use YYYY-MM-DD") from error
     try:
-        with _state_store(workspace) as store:
+        with WorkspaceLock(workspace, "upload"), _state_store(workspace) as store:
             uploader = Uploader(workspace, store)
             selected = uploader.select(
                 limit=limit, activity_id=activity_id, from_date=parsed_from, to_date=parsed_to
@@ -157,9 +158,13 @@ def strava_reset(
 ) -> None:
     """Recheck local blockers and report the safest action; preserve upload history."""
     manifest, fingerprint = MigrationManifest.load(workspace)
-    with _state_store(workspace) as store:
-        store.reconcile(manifest, fingerprint)
-        actions = store.reset(activity_id, force)
+    try:
+        with WorkspaceLock(workspace, "reset"), _state_store(workspace) as store:
+            store.reconcile(manifest, fingerprint)
+            actions = store.reset(activity_id, force)
+    except PolarToStravaError as error:
+        console.print(f"[red]Error:[/red] {error}")
+        raise typer.Exit(code=1) from error
     if force:
         console.print("--force is deprecated and cannot override recovery protection.")
     console.print("Safest local action(s):")
@@ -189,7 +194,7 @@ def audit(
         raise typer.BadParameter("Audit output must be a directory.")
     progress = AuditProgressRenderer(console, output)
     try:
-        with progress:
+        with progress, WorkspaceLock(output, "audit"):
             report = MigrationAudit(PolarImporter(), ActivityValidator()).run(
                 input,
                 output,
