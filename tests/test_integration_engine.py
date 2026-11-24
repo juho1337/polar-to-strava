@@ -459,6 +459,19 @@ def test_upload_without_credentials_is_structured_error(
 # --- lock --------------------------------------------------------------------------------
 
 
+def test_disconnect_and_authorization_wait_for_active_writers(tmp_path: Path) -> None:
+    root, _ = workspace(tmp_path)
+    save_tokens(root)
+    with WorkspaceLock(root, "upload.run"):  # an upload may be refreshing tokens right now
+        code, lines, _ = call("strava.disconnect", {"workspace": str(root)})
+        assert code == 3 and results(lines)["error"]["code"] == "workspace_locked"
+        assert (root / ".strava-tokens.json").exists()  # nothing was deleted
+        code, lines, _ = call("strava.authorize.complete", oauth_request(root))
+        assert code == 3 and results(lines)["error"]["code"] == "workspace_locked"
+    code, lines, _ = call("strava.disconnect", {"workspace": str(root)})
+    assert code == 0 and not (root / ".strava-tokens.json").exists()
+
+
 def test_second_writer_is_refused_and_readers_continue(tmp_path: Path) -> None:
     root, _ = workspace(tmp_path)
     with WorkspaceLock(root, "test"):

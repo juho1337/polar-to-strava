@@ -17,6 +17,7 @@ from integration.context import (
     write_athlete,
 )
 from integration.contract import EngineError
+from integration.lock import WorkspaceLock
 from integration.requests import (
     AuthorizeBeginRequest,
     AuthorizeCompleteRequest,
@@ -107,27 +108,32 @@ def authorize_complete(request: AuthorizeCompleteRequest, context: Context) -> d
             "The OAuth state parameter does not match; authorization was not completed.",
             field="state",
         )
-    client = make_client(request, context)
-    required = _scopes(list(request.features))
-    try:
-        tokens = client.exchange_code(code, request.granted_scope, required)
-    except ScopeNotGrantedError as error:
-        raise EngineError(
-            "insufficient_scope",
-            "Strava did not grant every requested permission.",
-            field="granted_scope",
-            details={
-                "required": list(required),
-                "missing": list(error.missing),
-                "granted": sorted(error.granted),
-            },
-        ) from None
-    except ConfigurationError:
-        raise EngineError("oauth_failed", "Strava authorization could not be completed.") from None
-    finally:
-        if context.http is None:
-            client.http.close()
-    write_athlete(request.workspace, client.last_athlete)
+    # Token writes share the workspace lock with uploads, so a refresh in a running upload cannot
+    # interleave with authorization (or disconnect) and resurrect or overwrite credentials.
+    with WorkspaceLock(request.workspace, "strava.authorize"):
+        client = make_client(request, context)
+        required = _scopes(list(request.features))
+        try:
+            tokens = client.exchange_code(code, request.granted_scope, required)
+        except ScopeNotGrantedError as error:
+            raise EngineError(
+                "insufficient_scope",
+                "Strava did not grant every requested permission.",
+                field="granted_scope",
+                details={
+                    "required": list(required),
+                    "missing": list(error.missing),
+                    "granted": sorted(error.granted),
+                },
+            ) from None
+        except ConfigurationError:
+            raise EngineError(
+                "oauth_failed", "Strava authorization could not be completed."
+            ) from None
+        finally:
+            if context.http is None:
+                client.http.close()
+        write_athlete(request.workspace, client.last_athlete)
     scopes = sorted(set(tokens.scope.split()))
     return {
         "connected": True,
@@ -139,13 +145,14 @@ def authorize_complete(request: AuthorizeCompleteRequest, context: Context) -> d
 
 def disconnect(request: ConnectionRequest, context: Context) -> dict[str, Any]:
     """Forget tokens and the athlete identity. The recovery history is untouched."""
-    store = token_store_for(request)
-    path = getattr(store, "path", None)
-    removed = False
-    if path is not None and path.exists():
-        path.unlink()
-        removed = True
-    athlete = request.workspace / ".strava-athlete.json"
-    if athlete.exists():
-        athlete.unlink()
+    with WorkspaceLock(request.workspace, "strava.disconnect"):
+        store = token_store_for(request)
+        path = getattr(store, "path", None)
+        removed = False
+        if path is not None and path.exists():
+            path.unlink()
+            removed = True
+        athlete = request.workspace / ".strava-athlete.json"
+        if athlete.exists():
+            athlete.unlink()
     return {"disconnected": True, "tokens_removed": removed, "recovery_history": "preserved"}
