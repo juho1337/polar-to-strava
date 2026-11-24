@@ -76,6 +76,8 @@ class UploadRunRequest(StravaRequest):
 
 class ResetRequest(WorkspaceRequest):
     activity_id: str
+    # Where the reconnected tokens live; the authorization repair check validates this store.
+    token_store: TokenStoreSpec = Field(default_factory=TokenStoreSpec)
 
 
 class ActivityListRequest(WorkspaceRequest):

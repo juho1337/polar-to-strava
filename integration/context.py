@@ -15,7 +15,7 @@ import httpx
 from core.atomic import atomic_write_text
 from core.errors import ConfigurationError
 from integration.contract import Emitter, EngineError
-from integration.requests import StravaRequest
+from integration.requests import StravaRequest, TokenStoreSpec
 from strava.client import StravaClient, TokenStore, TokenStoreLike, credentials
 from strava.token_stores import DpapiTokenStore
 
@@ -39,11 +39,14 @@ class Context:
             raise KeyboardInterrupt
 
 
-def token_store_for(request: StravaRequest) -> TokenStoreLike:
-    spec = request.token_store
+def token_store_from_spec(spec: TokenStoreSpec, workspace: Path) -> TokenStoreLike:
     if spec.kind == "dpapi":
-        return DpapiTokenStore(spec.path or request.workspace / ".strava-tokens.dpapi")
-    return TokenStore(spec.path or request.workspace / ".strava-tokens.json")
+        return DpapiTokenStore(spec.path or workspace / ".strava-tokens.dpapi")
+    return TokenStore(spec.path or workspace / ".strava-tokens.json")
+
+
+def token_store_for(request: StravaRequest) -> TokenStoreLike:
+    return token_store_from_spec(request.token_store, request.workspace)
 
 
 def resolve_credentials(request: StravaRequest, context: Context) -> tuple[str, str]:

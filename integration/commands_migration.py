@@ -13,7 +13,7 @@ from typing import Any
 
 from core.atomic import atomic_write_text
 from core.errors import ConfigurationError
-from integration.context import Context, make_client
+from integration.context import Context, make_client, token_store_from_spec
 from integration.contract import Emitter, EngineError, utc_now
 from integration.lock import WorkspaceLock
 from integration.requests import (
@@ -351,7 +351,11 @@ def reset(request: ResetRequest, context: Context) -> dict[str, Any]:
     with WorkspaceLock(request.workspace, "reset"):
         with UploadStateStore(state_path(request.workspace)) as store:
             store.reconcile(manifest, fingerprint)
-            actions = store.reset(request.activity_id, False)
+            actions = store.reset(
+                request.activity_id,
+                False,
+                token_store_from_spec(request.token_store, request.workspace),
+            )
             backup = str(store.backup_path) if store.backup_path is not None else None
     return {"actions": [action_dict(a) for a in actions], "state_backup_path": backup}
 
