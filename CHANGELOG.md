@@ -17,6 +17,11 @@ new tags use `MAJOR.MINOR.PATCH` and `vMAJOR.MINOR.PATCH`. Existing tags are unc
 - Handle observed overall/read rate limits, show used/limit counters and automatically
   wait/resume at short-window reserves. Bound remote processing and observation; daily
   reserves and HTTP 429 preserve work for a later run.
+- Audit performance (SPEC-003): freshly generated FIT files are decoded once instead of
+  twice (bytes on disk are proven identical to the verified bytes), workers scale with CPUs
+  within a memory bound (`--workers`), outputs are written atomically and an opt-in
+  `--incremental` cache reuses rows only when source, code version and FIT hash all match.
+  Outputs are unchanged.
 - Inspect saved status and dry-run actions locally. Safe reset preserves history and
   uncertainty; `--force` is a deprecated no-op.
 - Align the legacy requirements entry point with project metadata and extend artifact

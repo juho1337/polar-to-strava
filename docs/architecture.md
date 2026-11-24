@@ -154,8 +154,11 @@ overwrite policy; the writers themselves create parents and replace destination 
 `FITBuilder` uses pinned `fit-tool==0.9.16`, emits file identity, timer events, records,
 laps, one session and one activity summary, then decodes with CRC and semantic checks.
 Checks cover message/record counts, timestamps, sensor values and session fields.
-Audit separately decodes the stored file, including existing files on rerun, and compares
-it to the imported domain. This catches stale or corrupt output before eligibility.
+Audit compares a CRC-checked, validated decode with the imported domain. For a newly
+generated file this is the builder's own decode of the very bytes written (`build_verified`);
+the file on disk is proven identical by a read-back SHA-256, so the file is decoded once. An
+existing file on rerun is fully decoded from disk. This catches stale or corrupt output
+before eligibility.
 Whole-second timestamps round half-up; sensor precision is format-limited. Cadence and
 temperature round to integers. Unrepresentable altitude is rejected, not clamped.
 No synthetic record makes a summary-only activity exportable. See [FIT export](fit-export.md).
@@ -177,10 +180,24 @@ TCX checks does not prove a continuous Strava HR graph.
 ## Audit, workspace and manifest
 
 `MigrationAudit.run` discovers files, hashes source bytes, validates configuration and
-processes activities using `ProcessPoolExecutor` with up to eight workers, bounded by
-CPU count and source count. Importer/validator objects passed to workers must be
-serializable. Ordered `executor.map` results keep report order stable; a slow early
-item can delay visible progress even if later workers finish.
+processes activities using `ProcessPoolExecutor`. Workers default to the CPU count,
+bounded by task count and available memory (about 700 MB per worker; `--workers` overrides).
+Importer/validator objects passed to workers must be serializable; they are sent once per
+worker. A bounded window (4x workers) of tasks is in flight and results are consumed in
+discovery order, so report order is stable; a slow early item can delay visible progress.
+Cancellation (`should_cancel`) stops submitting, discards pending work and raises
+`AuditCancelledError` before any report or manifest is written.
+
+`--incremental` (opt-in, never with `--overwrite`) reuses a prior verified row for an
+unchanged source when `.audit-cache.json` matches: same relative path, source SHA-256 and
+timezone override, same cache version, same fingerprint of the conversion/validation
+sources and library versions, and the FIT file still has the recorded SHA-256 and size. Any
+difference is a miss and the full pipeline runs. The result equals a full rerun's.
+
+All reports, the manifest set and FIT files are replaced atomically (temporary file in the
+destination directory plus `os.replace`); `migration-manifest.json` is replaced last and
+stale temporaries are removed at the next audit start. See
+[performance baseline](performance-baseline.md) and [SPEC-003](../specs/003-audit-performance.md).
 
 Each worker inventories source sensors, imports, validates, builds or reuses FIT, decodes
 the stored file and hashes it. Failures retain a stage and diagnostic. Duplicate
@@ -192,8 +209,8 @@ a separate approval state or upload gate.
 Reports aggregate outcomes, sensors, sports, warnings and duplicate candidates. The JSON
 manifest is the authoritative upload input; CSV and audit reports are review outputs.
 Report paths and diagnostics can contain private local paths. Reports include elapsed
-time and are not byte-deterministic as a whole. Report/manifest writes are ordinary file
-writes, not an atomic multi-file transaction.
+time and are not byte-deterministic as a whole. Each report/manifest file is written
+atomically, but the set is not a multi-file transaction (the manifest is replaced last).
 
 ```text
 workspace/
@@ -327,7 +344,8 @@ personal account quota is assumed. See [setup](strava-setup.md).
 
 Audit emits frozen `AuditProgress` snapshots through an optional callback: discovery,
 preparation, processing, report generation, manifest writing, completion. Counters include
-processed files, valid FITs, warnings, failures and existing-file skips. Completion
+processed files, valid FITs, warnings, failures, existing-file skips, generated FITs and
+cache hits. Completion
 means reports/manifest were written, not that every activity succeeded. Callbacks execute
 in the parent process as ordered results arrive. `AuditProgressRenderer` chooses live
 Rich output or bounded static phase messages; it does not alter eligibility.

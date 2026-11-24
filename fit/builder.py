@@ -90,6 +90,10 @@ class FITBuilder:
     """Build FIT bytes and compare the decoded sensor stream with the source."""
 
     def build(self, activity: Activity) -> bytes:
+        return self.build_verified(activity)[0]
+
+    def build_verified(self, activity: Activity) -> tuple[bytes, FitFile]:
+        """Return the FIT bytes and the CRC-checked, validated decode of those same bytes."""
         if not activity.laps or not activity.trackpoints:
             raise ExportError("FIT activity requires a lap with recorded points")
         builder = FitFileBuilder(auto_define=True)
@@ -261,7 +265,7 @@ class FITBuilder:
                     actual_value is None or not isclose(actual_value, expected_value, abs_tol=0.02)
                 ):
                     raise ExportError(f"FIT session {field} differs from source")
-            return bytes(content)
+            return bytes(content), decoded
         except ExportError:
             raise
         except Exception as error:

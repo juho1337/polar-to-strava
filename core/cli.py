@@ -172,6 +172,17 @@ def audit(
     output: Annotated[Path, typer.Option("--output", "-o")],
     overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
     config: Annotated[Path | None, typer.Option("--config", exists=True, dir_okay=False)] = None,
+    workers: Annotated[
+        int | None,
+        typer.Option("--workers", min=1, help="Worker processes (default: CPUs, memory-bounded)."),
+    ] = None,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Reuse rows for unchanged sources whose FIT hash still matches (versioned cache).",
+        ),
+    ] = False,
 ) -> None:
     """Convert workouts to FIT and write a complete migration audit."""
     if output.exists() and not output.is_dir():
@@ -180,7 +191,13 @@ def audit(
     try:
         with progress:
             report = MigrationAudit(PolarImporter(), ActivityValidator()).run(
-                input, output, overwrite, config, progress.update
+                input,
+                output,
+                overwrite,
+                config,
+                progress.update,
+                workers=workers,
+                incremental=incremental,
             )
     except PolarToStravaError as error:
         console.print(f"[red]Error:[/red] {error}")

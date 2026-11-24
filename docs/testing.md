@@ -61,6 +61,7 @@ there are no separate unit/integration directory trees.
 | `test_fit_export.py` | Decoded FIT records/summaries, timestamps, missing measurements, altitude precedence, unresolved left power and format selection |
 | `test_sprint81.py` | Route/session bounds, lap reconstruction, ambiguous time, summary-only exclusion and equal-time observations |
 | `test_audit.py` | End-to-end local audit, reports, reruns, stable identity, timezone configuration, loss exclusion and progress/manifest independence |
+| `test_audit_performance.py` | SPEC-003: worker-count output equivalence, single-decode generation, written-vs-verified bytes, full validation of existing FITs, incremental cache hits/invalidation, cancellation, atomic writes, bounded workers |
 | `test_audit_progress.py` | Nonterminal CLI phases, empty/failed audits and completion summaries |
 | `test_strava_uploader.py` | Manifest selection, integrity, SQLite/reconciliation/reset, resume/duplicates, bounded observation, uncertain outcomes, OAuth, rate policy, pipeline capacity and local progress/status |
 
