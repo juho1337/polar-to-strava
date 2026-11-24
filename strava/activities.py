@@ -7,9 +7,10 @@ unavailable and must never conclude "no match" from it.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -45,9 +46,10 @@ class _Row(BaseModel):
     timezone: str | None = None
     sport_type: str | None = None
     type: str | None = None
-    distance: float = 0
-    moving_time: int = 0
-    elapsed_time: int = 0
+    # Required: a missing measurement is a malformed response, never a silent zero.
+    distance: float
+    moving_time: int
+    elapsed_time: int
     average_heartrate: float | None = None
     private: bool = False
     external_id: str | None = None
@@ -143,6 +145,8 @@ def list_activities(
             result.complete = True
             return result
         for row in rows:
+            if not _within(row, start, end):
+                continue  # outside the exact window; the API range is deliberately a little wider
             activity = _activity(row)
             if activity.strava_id not in seen:
                 seen.add(activity.strava_id)
@@ -150,6 +154,17 @@ def list_activities(
         if on_page is not None:
             on_page(page, len(rows), len(result.activities))
     return _stopped(result, "max_pages", "The page limit was reached before the window ended.")
+
+
+def _within(row: _Row, start: datetime, end: datetime) -> bool:
+    """Exact ``[start, end)`` check on the returned start time (the API filter is coarser)."""
+    try:
+        moment = datetime.fromisoformat(row.start_date.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return start <= moment < end
 
 
 def _stopped(result: LookupResult, code: str, message: str) -> LookupResult:
@@ -174,8 +189,10 @@ def _fetch_page(
                 f"{API_URL}/athlete/activities",
                 headers={"Authorization": f"Bearer {token}"},
                 params={
-                    "after": int(start.timestamp()),
-                    "before": int(end.timestamp()),
+                    # Strava's filters are strict whole seconds: widen so that an activity exactly at
+                    # ``start`` (or in the last partial second before ``end``) is returned; _within() trims.
+                    "after": math.floor(start.timestamp()) - 1,
+                    "before": math.ceil(end.timestamp()) + 1,
                     "page": page,
                     "per_page": PER_PAGE,
                 },
@@ -210,7 +227,7 @@ def _fetch_page(
 def _access(client: StravaClient, policy: RateLimitPolicy) -> str:
     try:
         while True:
-            access = client.prepare_access()
+            access = client.prepare_access((READ_ALL, READ))
             if policy.before_request(client.rate_limit, read=True):
                 client.rate_limit = None  # waited for the window; the next response refreshes it
                 continue

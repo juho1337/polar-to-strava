@@ -134,7 +134,8 @@ def test_request_parameters_and_no_secret_in_output(tmp_path: Path) -> None:
     _, lines, text, seen = run(tmp_path, paged([[row(1)]]))
     params = seen[0].url.params
     assert params["per_page"] == "200" and params["page"] == "1"
-    assert params["after"] == "1740787200" and params["before"] == "1743465600"
+    # Strava's after/before are strict whole seconds, so the request is widened by one second each side
+    assert params["after"] == "1740787199" and params["before"] == "1743465601"
     assert seen[0].headers["Authorization"] == f"Bearer {SENTINEL_ACCESS}"
     for secret in (SENTINEL_ACCESS, SENTINEL_REFRESH, SENTINEL_SECRET):
         assert secret not in text
@@ -273,3 +274,56 @@ def test_version_command_reports_contract_1_1_and_the_command() -> None:
     assert summary["contract"] == "1.1" and "strava.activities.list" in summary["commands"]
     assert summary["capabilities"]["activity_lookup"] is True
     assert json.dumps(summary)  # serializable
+
+
+def test_activity_exactly_at_the_lower_bound_is_included_and_the_exact_upper_bound_excluded(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        row(
+            1, "2025-02-28T23:59:59Z"
+        ),  # one second before the window: returned by the widened API range
+        row(2, "2025-03-01T00:00:00Z"),  # exactly at from_utc: must be kept
+        row(3, "2025-03-31T23:59:59Z"),  # last second inside
+        row(4, "2025-04-01T00:00:00Z"),  # exactly at to_utc: exclusive, must be dropped
+    ]
+    _, lines, _, seen = run(tmp_path, paged([rows]))
+    summary = results(lines)["summary"]
+    assert summary["complete"] is True
+    assert [a["strava_id"] for a in summary["activities"]] == ["2", "3"]
+    assert (
+        int(seen[0].url.params["after"]) < 1740787200
+    )  # the lower bound second is not lost to "after"
+
+
+def test_fractional_upper_bound_keeps_activities_in_its_last_partial_second(tmp_path: Path) -> None:
+    window = {"from_utc": "2025-03-01T00:00:00Z", "to_utc": "2025-03-01T10:00:00.500Z"}
+    _, lines, _, seen = run(
+        tmp_path,
+        paged([[row(1, "2025-03-01T10:00:00Z"), row(2, "2025-03-01T10:00:01Z")]]),
+        request=window,
+    )
+    assert [a["strava_id"] for a in results(lines)["summary"]["activities"]] == ["1"]
+    assert (
+        int(seen[0].url.params["before"]) >= 1740823201
+    )  # ceil of the fractional end, never truncated
+
+
+def test_a_read_only_token_without_upload_permission_can_look_up(tmp_path: Path) -> None:
+    _, lines, _, seen = run(tmp_path, paged([[row(1)]]), scope="activity:read_all")
+    summary = results(lines)["summary"]
+    assert summary["complete"] is True and summary["count"] == 1 and seen
+    _, lines, _, _ = run(tmp_path / "second", paged([[row(1)]]), scope="activity:read")
+    assert results(lines)["summary"]["limited_visibility"] is True
+
+
+@pytest.mark.parametrize("missing", ["distance", "moving_time", "elapsed_time"])
+def test_missing_matching_measurements_are_a_malformed_response_not_zeros(
+    tmp_path: Path, missing: str
+) -> None:
+    broken = row(1)
+    del broken[missing]
+    _, lines, _, _ = run(tmp_path, paged([[broken]]))
+    summary = results(lines)["summary"]
+    assert summary["complete"] is False and summary["stopped"]["code"] == "invalid_response"
+    assert summary["count"] == 0  # no fabricated zero is returned as evidence
