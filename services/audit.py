@@ -411,6 +411,7 @@ def _process_one(
         fit_sub_sport=fit_sub_sport.name.lower(),
         distance_m=activity.distance_m,
         calories=activity.calories,
+        name=activity.name,
         average_hr=activity.average_heart_rate_bpm,
         maximum_hr=activity.maximum_heart_rate_bpm,
         ascent_m=activity.ascent_m,

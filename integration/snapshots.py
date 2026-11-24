@@ -83,6 +83,10 @@ def audit_activity_dict(row: dict[str, Any]) -> dict[str, Any]:
         "timer_s": row.get("timer_s"),
         "distance_m": row.get("distance_m"),
         "calories": row.get("calories"),
+        "activity_name": row.get("name"),
+        "average_hr": row.get("average_hr"),
+        "maximum_hr": row.get("maximum_hr"),
+        "ascent_m": row.get("ascent_m"),
         "counts": {layer: row.get(f"{layer}_counts", {}) for layer in ("source", "domain", "fit")},
         "fit": {
             "valid": bool(row.get("fit_valid")),

@@ -58,7 +58,7 @@ hold the workspace lock.
 | --- | --- | --- |
 | `audit.phase` | phase change | `phase`, `total` |
 | `audit.progress` | throttled | `completed`, `total`, `percent`, `fit_valid`, `fit_generated`, `fit_reused`, `cache_hits`, `warnings`, `failed`, `skipped_existing`, `elapsed_s`, `rate_per_s`, `eta_s` (null until reliable) |
-| `audit.activity` | per source after the audit | all audit row fields, `migration_status`, `migration_reason`, `fit{...}` |
+| `audit.activity` | per source after the audit | all audit row fields (incl. `activity_name`, `average_hr`, `maximum_hr`, `ascent_m`; additive within 1.0), `migration_status`, `migration_reason`, `fit{...}` |
 | `upload.event` | every recovery event | `identifier`, `action`, `reason_codes[]`, `review_upload_ids[]`, `wait_reason`, `next_poll_at`, `polls_remaining`, `failures_remaining`, `batch` |
 | `upload.progress` | throttled and at batch end | the status counters, `run_total`, `current` |
 | `rate.snapshot` | with progress and at end | `overall`/`read` windows, `reserve`, `max_in_flight`, `in_flight`, `wait`, `polling` |

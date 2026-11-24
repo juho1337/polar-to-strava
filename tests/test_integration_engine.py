@@ -144,6 +144,7 @@ def test_audit_events_conform_and_match_report(audited: tuple[Path, Path]) -> No
     assert summary["fit_generated"] == 1 and summary["ready_to_migrate"] == 1
     activities = [line for line in lines if line.get("event") == "audit.activity"]
     assert len(activities) == 4
+    assert all({"activity_name", "average_hr", "maximum_hr"} <= a.keys() for a in activities)
     assert {a["stable_activity_id"] for a in activities} == {
         row["stable_activity_id"] for row in report["activities"]
     }
