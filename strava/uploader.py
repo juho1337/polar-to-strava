@@ -242,6 +242,8 @@ class _RecoveryRunner:
             self.store.set_blocker(identifier, "activity", error.code)
             self._notify(identifier)
             return True
+        if self._stop_requested():  # cancelled while access was being prepared or refreshed
+            return True
         manifest, fingerprint = MigrationManifest.load(self.workspace)
         self.store.reconcile(manifest, fingerprint)
         activity = next(
@@ -257,6 +259,9 @@ class _RecoveryRunner:
                     return False
                 record = self.store.load(identifier)
                 if not submission_permission(record, activity, artifact, True).allowed:
+                    return True
+                # Last cancellation point: nothing is persisted or sent until intent is recorded.
+                if self._stop_requested():
                     return True
                 attempt = self.store.begin_submission(identifier, record.revision, artifact, True)
                 try:

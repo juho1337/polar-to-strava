@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import time
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -390,6 +391,37 @@ def _csv_row(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_ABSOLUTE_PATH = re.compile(
+    r"[A-Za-z]:[\\/][^\s\"'<>|?*]*"  # drive path
+    r"|\\\\[^\\/\s]+[\\/][^\s\"'<>|?*]*"  # UNC path
+    r"|(?<![\w/.:~-])/(?:[\w.~@+-]+/)+[\w.~@+-]*"  # POSIX path with at least two segments
+)
+
+
+def scrub_diagnostics(value: Any, known_paths: tuple[str, ...] = ()) -> Any:
+    """Return ``value`` with local filesystem paths removed from every string.
+
+    Diagnostic text (import errors, failure examples) can embed absolute source paths. Known
+    roots are replaced first because they may contain spaces; any remaining absolute path
+    pattern is replaced as well. Only the export representation is changed.
+    """
+    roots = sorted({p for p in known_paths if p}, key=len, reverse=True)
+
+    def clean(text: str) -> str:
+        for root in roots:
+            for variant in {root, root.replace("\\", "/"), root.replace("/", "\\")}:
+                text = text.replace(variant, "<path>")
+        return _ABSOLUTE_PATH.sub("<path>", text)
+
+    if isinstance(value, str):
+        return clean(value)
+    if isinstance(value, dict):
+        return {key: scrub_diagnostics(item, known_paths) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [scrub_diagnostics(item, known_paths) for item in value]
+    return value
+
+
 def report_export(request: ReportExportRequest, context: Context) -> dict[str, Any]:
     """Build a report only from typed snapshots; no tokens, secrets, responses or local paths."""
     manifest, records, _, _ = load_state(request.workspace)
@@ -397,13 +429,18 @@ def report_export(request: ReportExportRequest, context: Context) -> dict[str, A
     details = _details(manifest, records, rows)
     progress = progress_dict(snapshot(manifest, records))
     audit = None
+    known_paths = [str(request.workspace), str(Path.home())]
     try:
         report = json.loads(
             (request.workspace / "migration-audit.json").read_text(encoding="utf-8")
         )
+        known_paths += [str(report.get("source_root", "")), str(report.get("output_root", ""))]
         audit = audit_summary_dict(report, "<workspace>", "<workspace>/migration-audit.md")
     except (OSError, ValueError, KeyError):
         pass
+    # Import failures put absolute source paths into diagnostic strings; scrub every string.
+    details = scrub_diagnostics(details, tuple(known_paths))
+    audit = scrub_diagnostics(audit, tuple(known_paths))
     generated = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     if request.format == "json":
         text = json.dumps(
