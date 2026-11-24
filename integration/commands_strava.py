@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime
+from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -19,12 +20,16 @@ from integration.context import (
 from integration.contract import EngineError
 from integration.lock import WorkspaceLock
 from integration.requests import (
+    ActivitiesListRequest,
     AuthorizeBeginRequest,
     AuthorizeCompleteRequest,
     ConnectionRequest,
 )
+from strava.activities import ActivityLookupError, list_activities
 from strava.client import REQUIRED_SCOPE, ScopeNotGrantedError, authorization_url
+from strava.rate_limit import RateLimitPolicy, RateWait
 
+MAX_LOOKUP_DAYS = 400
 SCOPES_FOR_FEATURE = {"migration": (REQUIRED_SCOPE,), "sync": ("activity:read_all",)}
 READ_SCOPES = {"read", "activity:read", "activity:read_all"}
 
@@ -141,6 +146,74 @@ def authorize_complete(request: AuthorizeCompleteRequest, context: Context) -> d
         "athlete": client.last_athlete,
         **_capabilities(scopes),
     }
+
+
+def activities_list(request: ActivitiesListRequest, context: Context) -> dict[str, Any]:
+    """Read-only lookup of existing Strava activities for duplicate detection (SPEC-005)."""
+    start, end = _utc(request.from_utc), _utc(request.to_utc)
+    if end <= start or end - start > timedelta(days=MAX_LOOKUP_DAYS):
+        raise EngineError(
+            "validation_failed",
+            f"The window must be positive and at most {MAX_LOOKUP_DAYS} days.",
+            field="to_utc",
+        )
+    # Token refresh writes the token store, so the lookup shares the workspace lock with uploads.
+    with WorkspaceLock(request.workspace, "strava.activities.list"):
+        client = make_client(request, context)
+        try:
+
+            def waiting(notice: RateWait) -> None:
+                context.emit.event(
+                    "rate.wait",
+                    reason="short_window_reserve",
+                    seconds=notice.seconds,
+                    resume_at=notice.resume_at.isoformat().replace("+00:00", "Z"),
+                )
+
+            policy = RateLimitPolicy(sleep=context.interruptible_sleep, on_wait=waiting)
+
+            def page(number: int, count: int, total: int) -> None:
+                context.emit.event("strava.activities.page", page=number, count=count, total=total)
+
+            try:
+                result = list_activities(
+                    client,
+                    start=start,
+                    end=end,
+                    policy=policy,
+                    should_stop=context.cancel.is_set,
+                    on_page=page,
+                    max_pages=request.max_pages,
+                )
+            except ActivityLookupError as error:
+                raise EngineError(error.code, str(error), details=error.details) from None
+        finally:
+            if context.http is None:
+                client.http.close()
+    stopped = (
+        {"code": result.stop_code, "message": result.stop_message} if result.stop_code else None
+    )
+    summary = {
+        "complete": result.complete,
+        "covered_from": _stamp(start) if result.complete else None,
+        "covered_to": _stamp(end) if result.complete else None,
+        "pages": result.pages,
+        "limited_visibility": result.limited_visibility,
+        "stopped": stopped,
+        "count": len(result.activities),
+        "activities": [asdict(activity) for activity in result.activities],
+    }
+    if result.stop_code == "cancelled":
+        return {"status": "cancelled", **summary}
+    return {"status": "completed" if result.complete else "completed_with_failures", **summary}
+
+
+def _stamp(value: datetime) -> str:
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def _utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def disconnect(request: ConnectionRequest, context: Context) -> dict[str, Any]:

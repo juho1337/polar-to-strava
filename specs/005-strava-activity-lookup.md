@@ -1,8 +1,8 @@
 # SPEC-005: Strava activity lookup for duplicate detection
 
-Status: Draft, awaiting owner approval
+Status: Approved (owner, 2026-11-24)
 Created: 2026-11-24
-Approval: Pending
+Approval: 2026-11-24, owner decided the three open questions (read_all scope, persisted cache, stored client secret)
 Related: [SPEC-002](002-strava-duplicate-response-and-polling-termination.md), [SPEC-004](004-desktop-integration-contract.md)
 Risk tier: safety-critical (duplicate safety, credentials, OAuth scopes, contract compatibility). See [change process](README.md).
 
@@ -37,15 +37,19 @@ A new **read-only** engine command `strava.activities.list` (contract 1.1, addit
    `sport_type`, `distance_m`, `moving_time_s`, `elapsed_time_s`, `average_hr` (optional),
    `private` and `external_id` (optional). No names, descriptions, routes, polylines, GPS or
    athlete profile data are returned.
-4. **Scope:** requires `activity:read_all` (or `activity:read`/`read`, accepted but reported as
-   `limited_visibility` because private activities are then invisible and a missing match proves
-   nothing). Missing scope is `insufficient_scope`; the host asks the user to reconnect.
+4. **Scope:** the app requests `activity:read_all` together with `activity:write` (one consent).
+   The command accepts `activity:read_all`, or `activity:read` reported as
+   `limited_visibility: true` because private activities are then invisible and a missing match
+   proves nothing. Without either it returns `insufficient_scope`; the host asks the user to
+   reconnect.
 5. **Locking:** it takes the workspace lock (token refresh writes the token store), so it returns
    `workspace_locked` while an upload or audit runs.
 6. **Failure semantics:** any stop (rate limit, daily limit, cancel, network or server error,
    not authorized) returns the pages read so far with `complete: false` and the error, never a
-   silent partial success. The host must treat every part of the window outside
-   `[covered_from, covered_to)` as unavailable (`check failed`), never as "no match".
+   silent partial success. When `complete` is false, `covered_from` and `covered_to` are null
+   (the order of Strava's pages is not relied on) and the host must treat the **whole window**
+   as unavailable (`check failed`), never as "no match". Activities that were returned remain
+   valid evidence that a match exists; only the absence of a match is uncertain.
 
 Host behavior (JuhoRunLab, specified here for consistency, implemented in its repository):
 
@@ -73,8 +77,19 @@ streams/GPS/photos, activities of other athletes, changing duplicate thresholds.
   working. The `version` command reports 1.1. Existing commands and the CLI are unchanged.
 - No change to the manifest, the recovery database or workspace layout. No new files in the
   workspace. The command does not touch recovery state.
-- Host caching: the host may keep the returned minimal fields in memory for the session. Whether it
-  persists them is an open question below.
+- Host cache (decided): the host persists the minimal fields (no names) in its app data folder
+  together with the windows that were **completely** read and when (`read_at`). Rate limits make
+  repeated full lookups expensive (about 100 requests per 15 minutes and 1,000 per day), so only
+  windows that are not covered, or are stale, are requested again. The cache is private user
+  data stored locally, never committed or exported, with a "clear Strava cache" action.
+  Because a cache can miss an activity uploaded to Strava after it was read (the unsafe
+  direction), a covered window is trusted for planning only while `read_at` is younger than 24
+  hours; **before a run starts** the host re-reads the windows of the activities about to upload
+  if their `read_at` is older than 1 hour, and replans if anything changed. SPEC-002's duplicate
+  response handling stays the last line of defense.
+- Client secret (decided): stored by the host, encrypted for the current Windows user (DPAPI,
+  never plaintext), passed to the engine per request, removed on "forget credentials"; the
+  engine never writes it to the workspace.
 
 ## Error and recovery behavior
 
@@ -108,7 +123,7 @@ streams/GPS/photos, activities of other athletes, changing duplicate thresholds.
 ## Acceptance criteria
 
 - AC-01: `strava.activities.list` returns the activities in the window with exactly the specified minimal fields and no names, routes or profile data.
-- AC-02: `complete` is true only when pagination reached an empty page; otherwise `complete` is false and `covered_from`/`covered_to` describe the contiguous range read.
+- AC-02: `complete` is true only when pagination reached an empty page (then `covered_from`/`covered_to` equal the request window); otherwise `complete` is false and both are null.
 - AC-03: Rate-limit, daily-limit, cancel, network and server stops return the pages read so far with `complete: false` and the error code; none is reported as success.
 - AC-04: Missing read scope returns `insufficient_scope`; `activity:read` only returns activities with `limited_visibility: true`.
 - AC-05: The command performs no writing request to Strava and never changes recovery state, the manifest or the workspace files other than the token store refresh.
@@ -117,20 +132,27 @@ streams/GPS/photos, activities of other athletes, changing duplicate thresholds.
 - AC-08: Tokens, codes and the client secret never appear in any output (checked with sentinel values).
 - AC-09: The `version` command reports contract 1.1; contract 1.0 hosts are unaffected and the schema/examples/docs list the command and event.
 - AC-10: Host: a failed or partial lookup produces `check failed` for uncovered activities; a successful lookup feeds the existing duplicate classification; an unresolved possible duplicate or failed check never uploads.
-- AC-11: Host: connection screens never store, log or export the client secret or tokens; disconnect and reconnect work; `workspace_locked` is shown as "an upload is running".
+- AC-11: Host: the client secret is stored only encrypted for the current user and tokens only in the engine's DPAPI store; neither is logged or exported; "forget credentials" deletes the secret; disconnect and reconnect work; `workspace_locked` is shown as "an upload is running".
+- AC-14: Host: the cache stores no activity names, records only completely read windows with `read_at`, requests only uncovered or stale windows, is cleared by a Settings action, and is never exported.
+- AC-15: Host: a cached window older than 24 hours is not trusted for planning, and before a run the windows of activities to upload are re-read when older than 1 hour; a change replans instead of uploading.
 - AC-12: Demo mode simulates the lookup, including a partial result, without any network access, labelled as simulated.
 - AC-13: All automated tests use synthetic API responses and mocked transport; no real Strava call is made.
 
-## Open questions for the owner
+## Open questions
 
-1. **Scope:** request `activity:read_all` (private activities included, reliable duplicate detection; one consent together with `activity:write`) or `activity:read` only? Proposal: `activity:read_all`, falling back to a clearly marked limited mode.
-2. **Persistence:** keep looked-up Strava activity data only in memory per session, or cache the minimal fields (no names) in the app data folder to avoid repeated lookups, with a "clear" action in Settings? Proposal: memory only for the first version.
-3. **Client credentials:** Strava requires the user's own API application (client id and secret). Enter the secret per session (nothing stored, proposal), or store it through the OS credential facility?
+None. Decided 2026-11-24: (1) scope `activity:read_all` with a marked limited mode as fallback; (2) the host persists a minimal cache with coverage and freshness rules (rate limits make memory-only impractical); (3) the client secret is stored, encrypted for the current user.
 
 ## Decision log
 
 - 2026-11-24: Draft written from the merged engine contract and the app's current live-mode limitation.
+- 2026-11-24: Approved. Owner chose `read_all`; chose to persist the cache (repeated lookups would otherwise hit the rate limits again and again), which added the freshness and pre-run re-read rules above; chose to store the client secret (DPAPI).
 
 ## Completion
 
-Filled in with the implementation PRs (engine and app).
+- Engine part: this PR (polar-to-strava#10), `strava/activities.py`, command `strava.activities.list`, contract 1.1.
+  AC-01 to AC-09 and AC-13 are covered by `tests/test_strava_activities.py` (mocked transport, synthetic rows with
+  private fields that must not appear, sentinel secrets, bounded retries, rate limit, cancel, lock, window validation,
+  scope handling, no change to workspace files) and the updated `version` test; documented in
+  `docs/desktop-integration.md`. Suite 507 passed, ruff, black and mypy clean.
+- Host part (AC-10, AC-11, AC-12, AC-14, AC-15): follows in a juho-run-lab pull request.
+- Deviations: none. Follow-up: host lookup, cache, connection screens and stored client secret.

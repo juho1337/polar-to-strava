@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -72,6 +72,14 @@ class UploadRunRequest(StravaRequest):
     selector: Selector
     max_in_flight: int = Field(default=3, ge=1, le=10)
     rate_limit_reserve: int = Field(default=10, ge=0)
+
+
+class ActivitiesListRequest(StravaRequest):
+    """SPEC-005: read the athlete's existing Strava activities in ``[from_utc, to_utc)``."""
+
+    from_utc: datetime
+    to_utc: datetime
+    max_pages: int = Field(default=50, ge=1, le=200)
 
 
 class ResetRequest(WorkspaceRequest):
