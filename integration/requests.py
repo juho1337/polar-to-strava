@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 
 class Request(BaseModel):
@@ -77,8 +77,10 @@ class UploadRunRequest(StravaRequest):
 class ActivitiesListRequest(StravaRequest):
     """SPEC-005: read the athlete's existing Strava activities in ``[from_utc, to_utc)``."""
 
-    from_utc: datetime
-    to_utc: datetime
+    from_utc: (
+        AwareDatetime  # an offset-free bound would be silently shifted; it is rejected instead
+    )
+    to_utc: AwareDatetime
     max_pages: int = Field(default=50, ge=1, le=200)
 
 

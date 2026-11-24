@@ -337,3 +337,17 @@ def test_invalid_or_zone_less_start_times_make_the_page_untrusted(
     summary = results(lines)["summary"]
     assert summary["complete"] is False and summary["stopped"]["code"] == "invalid_response"
     assert summary["count"] == 0  # not even the valid row of the bad page is trusted
+
+
+@pytest.mark.parametrize("bound", ["from_utc", "to_utc"])
+def test_offset_free_window_bounds_are_rejected_not_assumed_utc(tmp_path: Path, bound: str) -> None:
+    window = {bound: "2025-03-01T00:00:00" if bound == "from_utc" else "2025-03-10T00:00:00"}
+    code, lines, _, seen = run(tmp_path, paged([[row(1)]]), request=window)
+    assert code != 0 and results(lines)["type"] == "error" and seen == []
+
+
+def test_explicit_offsets_are_normalized_to_utc(tmp_path: Path) -> None:
+    window = {"from_utc": "2025-03-01T02:00:00+02:00", "to_utc": "2025-03-10T00:00:00Z"}
+    _, lines, _, _ = run(tmp_path, paged([[row(1, "2025-03-01T00:00:00Z")]]), request=window)
+    summary = results(lines)["summary"]
+    assert summary["covered_from"] == "2025-03-01T00:00:00Z" and summary["count"] == 1
