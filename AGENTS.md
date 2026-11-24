@@ -129,6 +129,8 @@ An agent must never merge its own pull request.
   materially affects reviewed behavior.
 - Automated tests use synthetic data, mock Strava and never perform live uploads. Add a
   regression test for each fix.
+- What GitHub can and cannot enforce (branch protection, Codex review) is described in
+  [GitHub settings](docs/github-settings.md).
 
 ## Review guidelines
 
