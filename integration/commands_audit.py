@@ -413,6 +413,21 @@ def timezone_apply(request: TimezoneApplyRequest, context: Context) -> dict[str,
         )
     path = _config_path(request.workspace, request.config)
     with WorkspaceLock(request.workspace, "timezone.apply"):
+        # Preflight against the selected source before touching the config: an edited or removed
+        # activity, or a different source directory, must leave the previous config in place.
+        available = {
+            stable_activity_id(source_sha256(p)) for p in PolarImporter().scan(request.source)
+        }
+        missing = [
+            i["stable_activity_id"] for i in items if i["stable_activity_id"] not in available
+        ]
+        if missing:
+            raise EngineError(
+                "source_mismatch",
+                "The selected source no longer contains these activities as audited; nothing was changed.",
+                field="source",
+                details={"activity_ids": missing},
+            )
         existing = load_migration_config(path if path.exists() else None)
         overrides = {
             key: {"timezone_offset": value.timezone_offset}

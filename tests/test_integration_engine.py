@@ -709,6 +709,29 @@ def test_timezone_apply_requires_confirmation_then_reruns_audit(audited: tuple[P
     assert results(lines)["summary"]["total"] == 0
 
 
+def test_timezone_apply_rejects_a_changed_source_and_keeps_the_previous_config(
+    audited: tuple[Path, Path], tmp_path: Path
+) -> None:
+    source, output = audited
+    _, lines, _ = call("timezone.list_unresolved", {"workspace": str(output)})
+    ids = [i["stable_activity_id"] for i in results(lines)["summary"]["activities"]]
+    config = output / "migration-config.json"
+    before = config.read_bytes() if config.exists() else None
+    other = tmp_path / "other-source"  # a different, empty source directory
+    other.mkdir()
+    request = {
+        "workspace": str(output),
+        "source": str(other),
+        "iana_zone": "Europe/Helsinki",
+        "choices": [{"stable_activity_id": value} for value in ids],
+        "workers": 1,
+        "confirm": True,
+    }
+    code, lines, _ = call("timezone.apply", request)
+    assert results(lines)["error"]["code"] == "source_mismatch" and code != 0
+    assert (config.read_bytes() if config.exists() else None) == before
+
+
 def test_timezone_apply_holds_the_workspace_lock_through_the_audit(
     audited: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
