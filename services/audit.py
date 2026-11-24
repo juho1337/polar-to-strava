@@ -502,9 +502,18 @@ def _available_memory() -> int | None:
         return None
 
 
+# ProcessPoolExecutor rejects more than 61 workers on Windows (WaitForMultipleObjects limit).
+MAX_PLATFORM_WORKERS = 61 if sys.platform == "win32" else 1024
+
+
+def limit_workers(workers: int) -> int:
+    """Clamp a worker count to what the platform's process pool accepts (at least one)."""
+    return max(1, min(workers, MAX_PLATFORM_WORKERS))
+
+
 def default_workers(tasks: int) -> int:
-    """CPU-count workers bounded by the task count and available memory (at least one)."""
-    workers = min(os.cpu_count() or 2, tasks)
+    """CPU-count workers bounded by the task count, memory and platform (at least one)."""
+    workers = min(os.cpu_count() or 2, tasks, MAX_PLATFORM_WORKERS)
     memory = _available_memory()
     if memory is not None:
         workers = min(workers, memory // WORKER_MEMORY_ESTIMATE)
@@ -549,6 +558,7 @@ def _ordered_results(
     """Yield rows in task order with a bounded number of in-flight tasks."""
     if not tasks:
         return
+    workers = limit_workers(workers)  # explicit counts must not crash the executor either
     window = workers * 4
     pending: deque[Future[dict[str, Any]]] = deque()
     iterator = iter(tasks)

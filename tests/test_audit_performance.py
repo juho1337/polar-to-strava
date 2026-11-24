@@ -345,3 +345,15 @@ def test_default_workers_are_cpu_and_memory_bounded(monkeypatch: pytest.MonkeyPa
     assert default_workers(100) == 3
     monkeypatch.setattr(audit_module, "_available_memory", lambda: 1)
     assert default_workers(100) == 1
+
+
+def test_worker_counts_never_exceed_the_platform_pool_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(audit_module, "MAX_PLATFORM_WORKERS", 61)
+    monkeypatch.setattr(os, "cpu_count", lambda: 128)
+    monkeypatch.setattr(audit_module, "_available_memory", lambda: None)
+    assert default_workers(500) == 61
+    assert audit_module.limit_workers(200) == 61
+    assert audit_module.limit_workers(0) == 1
+    assert audit_module.limit_workers(4) == 4
