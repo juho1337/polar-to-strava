@@ -97,20 +97,17 @@ Keep those semantic assertions; encoder success alone is insufficient.
 
 ## Regression workflow
 
-For a small bug whose intended behavior is already clear: reproduce, identify the root
-cause, add a focused regression where practical, make the minimal fix and verify. A new
-spec is not necessarily needed. If correctness is ambiguous or safety/compatibility
-sensitive, investigate and specify intended behavior first, review/approve it, plan,
-implement, verify and review compliance. Do not infer the desired fix solely from a
-failing test or current implementation.
+For a bug whose intended behavior is already clear: reproduce, find the root cause, add a
+focused regression where practical, make the minimal fix and verify. No spec is needed.
+If the correct behavior is ambiguous and the change is safety-critical (see
+[change process](../specs/README.md)), settle the intended behavior first and do not infer
+it solely from a failing test or the current implementation.
 
-SDD is the preferred workflow; strict test-first development is not required. Tests may
-be written before implementation, alongside it, or after a small implementation step.
-TDD remains an optional technique. Appropriate final automated coverage, retained
-regressions and complete validation remain required. Never weaken existing expectations
-just to pass; intentional changes to expected behavior must follow the approved spec.
-Documentation-only edits need no artificial tests. See the
-[specification workflow](../specs/README.md) for scope and approval rules.
+Strict test-first development is not required; write tests before, alongside or after the
+implementation. Final automated coverage, retained regressions and the complete checks
+remain required. Never weaken existing expectations just to pass; intentional changes to
+expected behavior follow the issue or approved spec. Documentation-only edits need no
+artificial tests.
 
 Examples of focused runs:
 
@@ -129,14 +126,14 @@ failure. Polling-failure recovery and abrupt process termination now have synthe
 coverage. Hardware power loss remains unproven; byte-identical duplicate sources and
 shared lap-boundary samples remain separate limitations.
 
-## Documentation and completion review
+## Documentation and completion check
 
-For specified work, record verification evidence for every acceptance criterion and
-perform the [final compliance review](../specs/README.md#final-specification-compliance-review).
-Passing tests alone does not establish compliance: check intended and unplanned behavior,
-boundaries, compatibility, integrity, privacy/security, documentation and deviations.
-An unmet criterion leaves work incomplete unless the spec is intentionally revised,
-reviewed and approved. Record results and follow-ups in the spec's Completion section.
+Safety-critical work is complete when every acceptance criterion in its spec is covered
+by tests (or a justified manual check) and the spec's Completion note links the PR and
+lists deviations and follow-ups. Ordinary changes need no per-criterion evidence: the PR
+description, its tests and the Codex review are the record. Passing tests alone do not
+prove intended behavior, so also look at unplanned behavior, boundaries, compatibility,
+privacy and documentation.
 
 Check relative links and referenced paths, CLI commands against actual help/configuration,
 and Mermaid diagrams against the implementation. Separate syntax, semantic and remote

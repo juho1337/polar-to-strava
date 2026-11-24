@@ -12,7 +12,7 @@ or missed compatibility requirement. Do not silently let either side win.
 - [Architecture](docs/architecture.md): boundaries, data flow, invariants and limitations.
 - [Python guidelines](docs/python-guidelines.md): project conventions and dependencies.
 - [Testing](docs/testing.md): regression strategy and required validation commands.
-- [Specifications](specs/README.md): SDD scope, authority, lifecycle, template and review.
+- [Change process and specifications](specs/README.md): risk tiers and the spec template.
   Read existing specifications relevant to the task.
 - Relevant feature documentation linked from the architecture guide.
 - [SECURITY.md](SECURITY.md) for credentials, external APIs, security or personal data;
@@ -57,51 +57,36 @@ documentation or commits. `.gitignore` is not a complete privacy boundary.
 
 ## Development workflow
 
-Specification-Driven Development is preferred for substantial features, behavioral or
-architecture changes, non-trivial semantic bugs and compatibility/safety-sensitive work.
-Use the proportionality rules in [specs/README.md](specs/README.md); routine documentation,
-formatting and other trivial nonsemantic work normally need no dedicated spec.
+How much has to be written down before implementing depends on risk (details and the spec
+template in [specs/README.md](specs/README.md)):
 
-1. Understand requirements, inspect code/tests and read relevant architecture and specs.
-   Determine whether a dedicated spec is needed; create/update it when appropriate.
-2. Resolve material open questions, review architecture impact and define uniquely
-   identified acceptance criteria. Obtain approval of intended behavior before substantial
-   implementation, then create a proportional implementation plan.
-3. Implement the smallest coherent change satisfying the approved spec. Follow existing
-   typing/model/error conventions; justify dependencies and GPL-3.0-only compatibility.
-   Add/update tests from acceptance criteria, edge cases and failure/compatibility/safety
-   requirements. Tests may be written before, alongside or after a small implementation
-   step; strict test-first development is not required. Never weaken coverage to pass.
-4. Run focused checks, then the full checks in [Testing](docs/testing.md). Review the
-   complete diff and `git status` for correctness, boundaries, error handling, API safety,
-   resumability, compatibility, complexity and private/generated files.
-5. Perform the [specification compliance review](specs/README.md#final-specification-compliance-review),
-   update current architecture/user docs where behavior changed and record implementation
-   references, per-criterion verification, deviations and follow-ups in the spec.
-6. Report files/reasons, spec ID when applicable, architectural decisions, validation,
-   compliance outcome, deviations, limitations, security/privacy and compatibility
-   implications, and migration semantics affected or explicitly unchanged.
+- **Routine changes** (clear bug fixes, refactors without semantic impact, docs, tests,
+  tooling): implement, test, open a PR. No spec, no approval gate.
+- **Normal features**: a GitHub issue with concise acceptance criteria, then
+  implementation, tests and Codex review. No separate spec unless material behavior is
+  still unresolved.
+- **Safety-critical changes** (upload recovery and retries, duplicate safety, FIT/TCX
+  integrity, timezones and timestamps, credentials, compatibility-sensitive changes):
+  a written spec approved by the owner before implementation, and full verification.
+  SPEC-001 to SPEC-004 stay in force.
 
-For a small bug with clear existing intended behavior: reproduce, find the root cause,
-add a regression where practical, fix minimally and verify; a new spec is not necessarily
-needed. Semantic or ambiguous bugs follow the specified workflow above.
+Delivery is always: implement, test, PR, Codex review, fix, owner merges. Inspect the
+existing code, tests and [architecture](docs/architecture.md) first; where code and an
+approved spec disagree, decide explicitly which one is wrong instead of letting either
+win silently. Do not invent missing behavioral requirements for safety-critical work;
+surface the decision. Tests are evidence, not a replacement for intended behavior. Strict
+test-first development is not required.
 
-Do not treat a user request as permission to invent missing behavioral requirements.
-Investigate materially ambiguous behavior, surface the decision and update the spec.
-If a spec proves incorrect, incomplete or impossible, stop affected implementation and
-review/approve its revision before continuing. Tests are evidence, not a substitute for
-the specification or permission to silently reinterpret acceptance criteria.
+Run the checks in [Testing](docs/testing.md), review the full diff and `git status` for
+private or generated files, and report what changed, what was validated, limitations,
+and any security, privacy or compatibility implications. Update architecture or user
+documentation when behavior changes.
 
-Keep Git changes scoped. Releases, remote settings changes and destructive actions require
-an explicit request. Pushing a feature branch and opening or updating its pull request is
-part of the [AI-assisted workflow](#ai-assisted-workflow-and-review) below; merging is
-never part of it.
-
-Repository specifications and project instructions take precedence over generic agent
-workflows. External research, planning, debugging, testing and review skills may help
-execute approved behavior; optional TDD must not replace SDD or impose strict test-first
-ordering. Humans and different agents must be able to contribute without a particular
-provider, IDE, plugin or proprietary workflow.
+Releases, remote settings changes and destructive actions require an explicit request.
+Pushing a feature branch and opening or updating its pull request is part of the
+[AI-assisted workflow](#ai-assisted-workflow-and-review) below; merging is never part of
+it. Humans and different agents must be able to contribute without a particular provider,
+IDE, plugin or proprietary workflow.
 
 ## AI-assisted workflow and review
 
@@ -120,9 +105,11 @@ An agent must never merge its own pull request.
   and does not need approval for routine implementation and testing decisions.
 - Run the checks in [Testing](docs/testing.md) before opening or updating a pull request,
   and keep the description and test evidence current.
-- Every substantial pull request needs an independent Codex review (automatic, or comment
+- Prefer substantial pull requests. Every substantial pull request needs an independent
+  Codex review (automatic, or comment
   `@codex review`; use `@codex security review` for credential, OAuth, process or file
-  handling changes). An unreviewed pull request is not ready to merge.
+  handling changes). Do not request another review of unchanged code. An unreviewed pull
+  request is not ready to merge.
 - Address every confirmed critical and high (P0/P1) finding. Evaluate medium (P2) findings
   and record any justified exception in the pull request, replying to a rejected finding
   with the reason. Re-run tests afterwards and request another review when the change

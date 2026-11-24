@@ -26,20 +26,20 @@ Python 3.12 or newer is required. Before changing code, read the
 [AGENTS.md](AGENTS.md). Read [SECURITY.md](SECURITY.md) when handling credentials,
 external APIs or personal data.
 
-For substantial behavioral, compatibility, safety or architecture changes, follow
-[Specification-Driven Development](specs/README.md): specify intended behavior and
-acceptance criteria, review architecture impact and obtain approval, plan, implement,
-verify and review specification compliance. Keep plans proportional; routine nonsemantic
-corrections and clear small bugs normally need no new spec. Tests remain required
-verification, but strict test-first ordering is optional. Link the spec and record
-deviations/follow-up work where applicable.
+How much to write down first depends on risk; see [specs/README.md](specs/README.md).
+Routine changes (clear bug fixes, refactors, docs, tests) need only an implementation,
+tests and a pull request. A normal feature starts from an issue with concise acceptance
+criteria. Safety-critical changes (upload recovery, duplicate safety, FIT/TCX integrity,
+timezones, credentials, compatibility) need an owner-approved spec first. Tests are
+required; strict test-first ordering is optional.
 
 Keep the change scoped, preserve migration and format compatibility, and add focused
 regressions for behavioral changes. Review the complete diff and Git status for personal
 data, secrets and generated artifacts before committing. Summarize changes, validation
-and limitations; call out architecture, manifest, migration or security implications.
-Tests must not call the real Strava API or use real credentials. Do not push, merge,
-release or modify remote settings unless explicitly requested by the maintainer/user.
+and limitations; call out manifest, migration or security implications. Tests must not
+call the real Strava API or use real credentials. Releases and remote settings changes
+need the maintainer's explicit request; the pull request and review flow is described in
+[AGENTS.md](AGENTS.md).
 
 ## Licensing status
 
